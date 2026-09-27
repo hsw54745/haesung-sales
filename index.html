@@ -31,6 +31,7 @@
     border:1px solid var(--line); border-radius:6px; margin-bottom:8px; }
   .lockbox button { width:100%; padding:12px; font-size:16px; }
   .lockhint { font-size:13px; }
+  .pin { -webkit-text-security:disc; text-security:disc; }
   .lockmsg { color:var(--minus) !important; min-height:18px; font-size:13px; margin:0 0 8px !important; }
   .titlebox { display:flex; flex-direction:column; gap:3px; }
   .savestatus { font-size:12px; color:var(--done); }
@@ -378,7 +379,7 @@
   <div class="lockbox">
     <h2>해성발전기 매출 시트</h2>
     <p>비밀번호를 입력하세요</p>
-    <input id="lockInput" type="password" inputmode="numeric" autocomplete="current-password" aria-label="비밀번호">
+    <input id="lockInput" type="text" class="pin" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" name="hs-sales-pin" data-lpignore="true" data-1p-ignore aria-label="비밀번호">
     <p id="lockHint" class="lockhint"></p>
     <p id="lockMsg" class="lockmsg"></p>
     <button id="lockOk" class="primary">열기</button>
@@ -1087,6 +1088,7 @@ function render() {
   document.getElementById("view").innerHTML = curTab === "report" ? reportView(list.map(([b]) => b))
     : mq.matches ? cardView(list) : tableView(list);
   document.getElementById("count").textContent = `${list.length}건 표시 / 전체 ${data.length}건`;
+  document.querySelectorAll("#view input, #view textarea").forEach(i => { i.setAttribute("autocomplete", "off"); i.setAttribute("data-lpignore", "true"); });
   const t = list.map(([b]) => totalsOf(b)).reduce((a, c) => ({
     supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal
   }), { supply:0, vat:0, paid:0, bal:0 });
