@@ -397,7 +397,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
 const KEY = "haesung-sales-cloud-v1";   // 이 기기의 임시 보관용(오프라인 대비)
-const DEFAULT_ITEMS = ["발전기", "전선", "분전함", "연료"];
+const DEFAULT_ITEMS = ["발전기", "연료"];
 const mq = window.matchMedia("(max-width: 760px)");
 
 /* ---------- 날짜 도우미 ---------- */
@@ -627,14 +627,28 @@ const CATS = [
   ["발전기", /발전/],
   ["전선", /전선|케이블|cable/i],
   ["분전함", /분전|배전/],
-  ["운임", /운임|운반|운송|배송|탁송|용차|운송비|배차|크레인/],
+  ["운임", /운임|운반|운송|배송|탁송|용차|배차/],
   ["연료", /연료|경유|유류|기름|주유/],
 ];
-const CAT_NAMES = [...CATS.map(c => c[0]), "기타"];
-const catOf = item => { for (const [n, re] of CATS) if (re.test(item || "")) return n; return "기타"; };
-function catTotals(bills, basis = catBasis) {
-  const t = Object.fromEntries(CAT_NAMES.map(n => [n, 0]));
-  bills.forEach(b => b.rows.forEach(r => { if (!r.supply && !r.item) return; t[catOf(r.item)] += basis === "total" ? lineOf(r) : (r.supply || 0); }));
+// 알려진 이름은 묶고(발전기 120kw → 발전기), 처음 보는 항목은 첫 단어로 새 항목이 생김 (예: 크레인 25톤 → 크레인)
+const catOf = item => {
+  const s = String(item || "").trim();
+  for (const [n, re] of CATS) if (re.test(s)) return n;
+  const w = (s.split(/\s+/)[0] || "").replace(/[\d.,~()\-]+.*$/, "");
+  return w || "기타";
+};
+const usedRow = r => !!r.supply;   // 금액이 들어간 항목만 항목별 합계에 표시
+// 실제 거래에 들어있는 항목만 목록에 나옴 (항목을 추가하면 생기고, 빼면 없어짐)
+function catNamesFor(bills) {
+  const set = new Set();
+  bills.forEach(b => b.rows.forEach(r => { if (usedRow(r)) set.add(catOf(r.item)); }));
+  const known = CATS.map(c => c[0]).filter(n => set.has(n));
+  const others = [...set].filter(n => !known.includes(n) && n !== "기타").sort((a, b) => a.localeCompare(b, "ko"));
+  return [...known, ...others, ...(set.has("기타") ? ["기타"] : [])];
+}
+function catTotals(bills, basis = catBasis, names = catNamesFor(bills)) {
+  const t = Object.fromEntries(names.map(n => [n, 0]));
+  bills.forEach(b => b.rows.forEach(r => { if (!usedRow(r)) return; const c = catOf(r.item); if (c in t) t[c] += basis === "total" ? lineOf(r) : (r.supply || 0); }));
   return t;
 }
 const monthLabel = m => m.slice(0, 4) === thisMonth().slice(0, 4) ? `${+m.slice(5)}월` : `${m.slice(2, 4)}년 ${+m.slice(5)}월`;
@@ -1019,10 +1033,11 @@ function reportView(bills) {
 }
 function catReport(bills) {
   const yearBills = bills;
-  const byMonth = Array.from({ length:12 }, (_, m) => catTotals(yearBills.filter(b => +monthOf(b).slice(5) === m + 1)));
-  const sum = arr => { const t = Object.fromEntries(CAT_NAMES.map(n => [n, 0])); arr.forEach(x => CAT_NAMES.forEach(n => t[n] += x[n])); return t; };
+  const used = catNamesFor(yearBills);
+  const byMonth = Array.from({ length:12 }, (_, m) => catTotals(yearBills.filter(b => +monthOf(b).slice(5) === m + 1), catBasis, used));
+  const sum = arr => { const t = Object.fromEntries(used.map(n => [n, 0])); arr.forEach(x => used.forEach(n => t[n] += x[n])); return t; };
   const year = sum(byMonth);
-  const used = CAT_NAMES.filter(n => n !== "기타" || year[n]);
+  if (!used.length) return `<div class="cathead"><h3>항목별 매출</h3><span class="muted">입력된 항목이 없어요</span></div>`;
   const tot = x => used.reduce((s, n) => s + x[n], 0);
   const yt = tot(year) || 1;
   const cells = x => used.map(n => `<td class="${x[n] ? "" : "zero"}">${won(x[n])}</td>`).join("") + `<td class="sum">${won(tot(x))}</td>`;
@@ -1041,10 +1056,10 @@ function catReport(bills) {
       <label>기준 <select id="rBasis">
         <option value="supply" ${catBasis === "supply" ? "selected" : ""}>공급가액</option>
         <option value="total" ${catBasis === "total" ? "selected" : ""}>합계 (부가세 포함)</option></select></label>
-      <span class="muted">공급내역 이름으로 자동 구분 (예: ‘발전기 120kw’ → 발전기, ‘운임’·‘운반비’ → 운임)</span>
+      <span class="muted">공급내역 이름으로 자동 구분 (예: ‘발전기 120kw’ → 발전기, ‘운반비’ → 운임). 새 항목을 넣으면 여기에 생기고, 없애면 사라져요</span>
     </div>
     <div class="rwrap"><table class="rtable ctable">
-      <thead><tr><th>구분</th>${used.map(n => `<th>${n}</th>`).join("")}<th>합계</th></tr></thead>
+      <thead><tr><th>구분</th>${used.map(n => `<th>${esc(n)}</th>`).join("")}<th>합계</th></tr></thead>
       <tbody>${rows}${share}</tbody>
     </table></div>`;
 }
@@ -1059,10 +1074,11 @@ function reportCSV() {
   lines.push(line(`${reportYear}년 합계`, year));
   // 항목별
   lines.push([]); lines.push([`항목별 매출 (${catBasis === "total" ? "부가세 포함" : "공급가액"})`]);
-  lines.push(["구분", ...CAT_NAMES, "합계"]);
-  const byM = Array.from({ length:12 }, (_, m) => catTotals(bills.filter(b => +monthOf(b).slice(5) === m + 1)));
-  const sumL = arr => CAT_NAMES.map(n => arr.reduce((s, x) => s + x[n], 0));
-  byM.forEach((x, m) => { const v = CAT_NAMES.map(n => x[n]); lines.push([`${m + 1}월`, ...v, v.reduce((a, c) => a + c, 0)]);
+  const CN = catNamesFor(bills);
+  lines.push(["구분", ...CN, "합계"]);
+  const byM = Array.from({ length:12 }, (_, m) => catTotals(bills.filter(b => +monthOf(b).slice(5) === m + 1), catBasis, CN));
+  const sumL = arr => CN.map(n => arr.reduce((s, x) => s + x[n], 0));
+  byM.forEach((x, m) => { const v = CN.map(n => x[n]); lines.push([`${m + 1}월`, ...v, v.reduce((a, c) => a + c, 0)]);
     if (m % 3 === 2) { const q = sumL(byM.slice(m - 2, m + 1)); lines.push([`${(m + 1) / 3}분기 합계`, ...q, q.reduce((a, c) => a + c, 0)]); } });
   const yv = sumL(byM); lines.push([`${reportYear}년 합계`, ...yv, yv.reduce((a, c) => a + c, 0)]);
   return lines;
@@ -1101,9 +1117,9 @@ function render() {
     supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal
   }), { supply:0, vat:0, paid:0, bal:0 });
   const tb = document.getElementById("tBill"); if (tb) tb.textContent = won(t.supply + t.vat);
-  const ct = catTotals(list.map(([b]) => b), "supply");
+  const ct = catTotals(list.map(([b]) => b), "supply"), cn = Object.keys(ct);
   document.getElementById("catline").innerHTML = `<span class="catlabel">항목별 (공급가액)</span>` +
-    CAT_NAMES.filter(n => n !== "기타" || ct[n]).map(n => `<span class="catchip"><em>${n}</em>${won(ct[n])}</span>`).join("");
+    (cn.length ? cn.map(n => `<span class="catchip"><em>${esc(n)}</em>${won(ct[n])}</span>`).join("") : `<span class="catlabel">입력된 항목 없음</span>`);
   [["Supply", t.supply], ["Vat", t.vat], ["Paid", t.paid], ["Bal", t.bal]].forEach(([k, n]) => {
     document.getElementById("s" + k).textContent = won(n);
     const cell = document.getElementById("t" + k); if (cell) cell.textContent = won(n);
@@ -1265,7 +1281,7 @@ function printHead(list) {
       <div class="date">출력일 ${toISO(n)} ${pad(n.getHours())}:${pad(n.getMinutes())}</div></div>
     <div class="psum"><span>공급가액 <b>${won(t.supply)}</b></span><span>부가세 <b>${won(t.vat)}</b></span>
       <span>청구 합계 <b>${won(t.supply + t.vat)}</b></span><span>입금 <b>${won(t.paid)}</b></span><span>잔액 <b>${won(t.bal)}</b></span>
-      <span class="cats">항목별(공급가액): ${CAT_NAMES.filter(k => k !== "기타" || ct[k]).map(k => `${k} ${won(ct[k])}`).join(" · ")}</span></div>`;
+      <span class="cats">항목별(공급가액): ${Object.keys(ct).map(k => `${esc(k)} ${won(ct[k])}`).join(" · ") || "-"}</span></div>`;
 }
 function printView(list) {
   let body = "", grp = null;
