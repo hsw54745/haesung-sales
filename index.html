@@ -284,10 +284,47 @@
     .due button { width:100%; padding:10px; }
     .wrap { padding:14px 12px 40px; overflow:visible; }
   }
+  /* ---------- 인쇄 (기본 A4 가로, 인쇄 전용 표) ---------- */
+  #printArea { display:none; }
+  @page { size:A4 landscape; margin:8mm; }
   @media print {
-    header .tools, .filters, .tabs, .toast, tr.addrow, .itemcell button { display:none !important; }
-    body { background:#fff; } .wrap { padding:0; overflow:visible; } table { min-width:0; font-size:11px; }
+    body { background:#fff !important; padding:0 !important; }
+    body > :not(#printArea) { display:none !important; }
+    #printArea { display:block; color:#000; font-size:8.5pt; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   }
+  .ph { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:2px solid #000; padding-bottom:4px; margin-bottom:6px; }
+  .ph h1 { font-size:14pt; margin:0; }
+  .ph .sub { font-size:9pt; }
+  .ph .date { font-size:8pt; color:#444; }
+  .psum { display:flex; flex-wrap:wrap; gap:4px 18px; margin:0 0 6px; font-size:9pt; }
+  .psum b { font-size:10pt; }
+  .psum .cats { color:#333; }
+  .ptable { width:100%; border-collapse:collapse; table-layout:auto; min-width:0 !important; }
+  #printArea table { min-width:0 !important; }
+  #printArea .rtable th, #printArea .rtable td { height:auto; padding:2px 8px; }
+  #printArea .qcards { gap:6px; margin-bottom:8px; }
+  #printArea .qcards div { padding:6px 8px; }
+  #printArea .qcards strong { font-size:11pt; }
+  #printArea .cathead { margin:10px 0 4px; }
+  #printArea .cathead select, #printArea .report-head select { border:0; appearance:none; }
+  #printArea .note, #printArea .bar { display:none; }
+  .ptable th, .ptable td { border:1px solid #999; padding:2px 4px; vertical-align:middle; text-align:center; line-height:1.3; }
+  .ptable th { background:#e5e9ee; font-weight:600; white-space:nowrap; }
+  .ptable td.l { text-align:left; }
+  .ptable td.r { text-align:right; white-space:nowrap; }
+  .ptable td.nw { white-space:nowrap; }
+  .ptable tbody.pb { break-inside:avoid; page-break-inside:avoid; }
+  .ptable tbody.pb { border-top:1.5px solid #000; }
+  .ptable tr.pg td { background:#eee; font-weight:600; text-align:left; }
+  .ptable tbody.st-done td { background:#eaf2fc; }
+  .ptable tbody.st-part td { background:#fdf3e2; }
+  .ptable tbody.st-open td { background:#fcecea; }
+  .ptable .pst { font-weight:700; }
+  .ptable .muted2 { color:#555; font-size:7.5pt; }
+  .ptable tfoot td { background:#e5e9ee; font-weight:700; border-top:1.5px solid #000; }
+  .ptable td:nth-child(3) { min-width:90px; }
+  .pmemo { max-width:140px; white-space:pre-wrap; text-align:left !important; }
+  .pnote { font-size:7.5pt; color:#555; margin-top:4px; }
 </style>
 </head>
 <body>
@@ -333,6 +370,7 @@
 <nav class="tabs" id="tabs" aria-label="월별 시트"></nav>
 
 <div class="wrap" id="view"></div>
+<div id="printArea"></div>
 
 <div id="lock" class="lock" hidden>
   <div class="lockbox">
@@ -1040,7 +1078,7 @@ function renderTabs() {
 function render() {
   renderTabs();
   buildFilterOptions();
-  const list = data.map((b, i) => [b, i]).filter(([b]) => visible(b))
+  const list = lastList = data.map((b, i) => [b, i]).filter(([b]) => visible(b))
     .sort((a, b) => (b[0].longTerm ? 1 : 0) - (a[0].longTerm ? 1 : 0)
       || (a[0].longTerm ? (a[0].company || "").localeCompare(b[0].company || "", "ko") : 0)
       || (a[0].date || "").localeCompare(b[0].date || "") || a[1] - b[1]);
@@ -1195,7 +1233,71 @@ document.getElementById("addBtn").onclick = () => {
   save(); render();
   window.scrollTo({ top:document.body.scrollHeight, behavior:"smooth" });
 };
-document.getElementById("printBtn").onclick = () => window.print();
+/* ---------- 인쇄용 표 만들기 ---------- */
+let lastList = [];
+function viewLabel() {
+  const tab = curTab === "all" ? "전체" : curTab === "report" ? `${reportYear}년 매출 합계` : `${curTab.slice(0, 4)}년 ${+curTab.slice(5)}월`;
+  const f = [filter.company, filter.kind === "long" ? "장기" : filter.kind === "short" ? "단기" : "",
+    filter.status === "done" ? "입금완료" : filter.status === "open" ? "미완료" : filter.status === "partial" ? "일부입금" : ""].filter(Boolean);
+  return tab + (f.length ? ` (필터: ${f.join(", ")})` : "");
+}
+function printHead(list) {
+  const t = list.map(([b]) => totalsOf(b)).reduce((a, c) => ({ supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal }), { supply:0, vat:0, paid:0, bal:0 });
+  const ct = catTotals(list.map(([b]) => b), "supply");
+  const n = new Date();
+  return `<div class="ph"><div><h1>해성발전기 매출 시트</h1><div class="sub">${esc(viewLabel())} · ${list.length}건</div></div>
+      <div class="date">출력일 ${toISO(n)} ${pad(n.getHours())}:${pad(n.getMinutes())}</div></div>
+    <div class="psum"><span>공급가액 <b>${won(t.supply)}</b></span><span>부가세 <b>${won(t.vat)}</b></span>
+      <span>청구 합계 <b>${won(t.supply + t.vat)}</b></span><span>입금 <b>${won(t.paid)}</b></span><span>잔액 <b>${won(t.bal)}</b></span>
+      <span class="cats">항목별(공급가액): ${CAT_NAMES.filter(k => k !== "기타" || ct[k]).map(k => `${k} ${won(ct[k])}`).join(" · ")}</span></div>`;
+}
+function printView(list) {
+  let body = "", grp = null;
+  list.forEach(([b]) => {
+    const g = b.longTerm ? "long" : "short";
+    if (g !== grp) {
+      grp = g;
+      body += `<tbody><tr class="pg"><td colspan="14">${g === "long" ? "장기임대" : "단기임대"} ${list.filter(([x]) => !!x.longTerm === (g === "long")).length}건</td></tr></tbody>`;
+    }
+    const t = totalsOf(b), span = b.rows.length;
+    const pays = b.payments.length ? b.payments.map(x => `${x.date ? md(x.date) : "-"} ${won(x.amount)}`).join("<br>") : `<span class="muted2">없음</span>`;
+    const stTxt = isDone(b) ? "입금완료" : isPartial(b) ? "일부입금" : "미완료";
+    const kind = b.longTerm ? `장기<br><span class="muted2">${roundOf(b)}개월차${b.ltEnded ? "·종료" : ""}</span>` : "단기";
+    const per = b.periodStart || b.periodEnd ? `${md(b.periodStart)}~${md(b.periodEnd)}<br><span class="muted2">${periodText(b).replace(/<[^>]+>/g, "")}</span>` : esc(b.period);
+    body += `<tbody class="pb ${stClass(b)}">`;
+    b.rows.forEach((r, ri) => {
+      body += "<tr>";
+      if (ri === 0) body += `<td rowspan="${span}" class="nw">${esc(b.date)}</td><td rowspan="${span}" class="nw">${esc(b.company)}</td>
+        <td rowspan="${span}" class="l">${esc(b.site)}</td><td rowspan="${span}" class="nw">${esc(b.manager)}${b.phone ? `<br><span class="muted2">${esc(b.phone)}</span>` : ""}</td>
+        <td rowspan="${span}" class="nw">${per}</td><td rowspan="${span}">${kind}</td>`;
+      body += `<td class="l nw">${esc(r.item)}</td><td class="r">${fmt(r.supply) || "0"}</td><td class="r">${fmt(vatOf(r)) || "0"}</td><td class="r">${fmt(lineOf(r)) || "0"}</td>`;
+      if (ri === 0) body += `<td rowspan="${span}" class="r">${pays}</td>
+        <td rowspan="${span}" class="r"><span class="muted2">청구 ${won(t.supply + t.vat)}</span><br><b>${won(t.bal)}</b></td>
+        <td rowspan="${span}" class="pst nw">${stTxt}</td><td rowspan="${span}" class="pmemo">${esc(b.memo)}</td>`;
+      body += "</tr>";
+    });
+    body += "</tbody>";
+  });
+  if (!list.length) body = `<tbody><tr><td colspan="14">거래가 없습니다</td></tr></tbody>`;
+  const t = list.map(([b]) => totalsOf(b)).reduce((a, c) => ({ supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal }), { supply:0, vat:0, paid:0, bal:0 });
+  return printHead(list) + `<table class="ptable">
+    <thead><tr><th>날짜</th><th>업체명</th><th>현장주소</th><th>담당자</th><th>임대기간</th><th>구분</th><th>공급내역</th>
+      <th>공급가액</th><th>부가세</th><th>합계</th><th>입금 내역</th><th>잔액</th><th>상태</th><th>비고</th></tr></thead>
+    ${body}
+    <tfoot><tr><td colspan="7">합계</td><td class="r">${fmt(t.supply) || 0}</td><td class="r">${fmt(t.vat) || 0}</td>
+      <td class="r">${fmt(t.supply + t.vat) || 0}</td><td class="r">${won(t.paid)}</td><td class="r">${won(t.bal)}</td><td colspan="2"></td></tr></tfoot>
+  </table>`;
+}
+function preparePrint() {
+  const area = document.getElementById("printArea");
+  if (curTab === "report") {
+    area.innerHTML = printHead(lastList) + document.getElementById("view").innerHTML;
+  } else {
+    area.innerHTML = printView(lastList);
+  }
+}
+window.addEventListener("beforeprint", preparePrint);
+document.getElementById("printBtn").onclick = () => { preparePrint(); window.print(); };
 
 /* ---------- 간단 비밀번호 (보안용 아님, 남이 쉽게 못 보게 하는 정도) ---------- */
 const PW_KEY = KEY + "-pw";
