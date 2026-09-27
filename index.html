@@ -79,6 +79,8 @@
   .card .amtcheck label { margin:0; }
   .tab .warn { color:#b07400; font-weight:600; }
   td.kindcell { padding:4px; }
+  input[data-need="1"] { background:#fff4c8 !important; outline:2px dashed #e0a800; outline-offset:-3px; }
+  input[data-need="1"]::placeholder { color:#9a6b00; }
   td.mgr input.cell { min-height:28px; height:28px; }
   td.mgr input.phone { font-size:12px; color:var(--muted); }
   .phonerow { display:flex; gap:6px; }
@@ -438,7 +440,7 @@ function normalize(b) {
   }
   b.payments = b.payments.filter(Boolean).map(x => ({ date:x.date ?? "", amount:x.amount || 0, note:x.note ?? "" }));
   b.rows = b.rows.filter(Boolean).map(r => ({ item:r.item ?? "", supply:r.supply || 0, vat:r.vat ?? null }));
-  for (const k of ["date","company","site","manager","phone","period","periodStart","periodEnd","memo","contractId"]) b[k] ??= "";
+  for (const k of ["draftMonth","date","company","site","manager","phone","period","periodStart","periodEnd","memo","contractId"]) b[k] ??= "";
   b.longTerm = !!b.longTerm; b.ltEnded = !!b.ltEnded;
   if (!b.id) b.id = newId();
   return b;
@@ -599,7 +601,7 @@ function save() {
 
 const filter = { company:"", status:"", kind:"" };
 const KEY_M = KEY + "-months";
-const monthOf = b => isISO(b.date) ? b.date.slice(0, 7) : "";
+const monthOf = b => isISO(b.date) ? b.date.slice(0, 7) : (b.draftMonth || "");
 const thisMonth = () => today().slice(0, 7);
 const nextMonthKey = m => addMonths(m + "-01", 1).slice(0, 7);
 let pwConf = null;
@@ -833,7 +835,7 @@ function tableView(list) {
       const autoVat = r.vat === null || r.vat === undefined;
       body += "<tr>";
       if (ri === 0) body += `
-        <td rowspan="${span}"><input class="cell" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" value="${esc(b.date)}"></td>
+        <td rowspan="${span}"><input class="cell" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" data-need="${b.date ? 0 : 1}" value="${esc(b.date)}"></td>
         <td rowspan="${span}"><input class="cell" data-b="${bi}" data-f="company" value="${esc(b.company)}"></td>
         <td rowspan="${span}" class="sitecell"><textarea class="cellta" rows="3" data-b="${bi}" data-f="site" placeholder="현장주소">${esc(b.site)}</textarea></td>
         <td rowspan="${span}" class="mgr">
@@ -920,7 +922,7 @@ function cardView(list) {
       </div>
       ${amtCheck(b, bi)}
       <div class="grid2">
-        <label>날짜<input class="f" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" value="${esc(b.date)}"></label>
+        <label>날짜<input class="f" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" data-need="${b.date ? 0 : 1}" value="${esc(b.date)}"></label>
         <label>담당자<input class="f" data-b="${bi}" data-f="manager" value="${esc(b.manager)}"></label>
         <label class="full">연락처
           <div class="phonerow">
@@ -1226,12 +1228,16 @@ document.addEventListener("click", e => {
 document.getElementById("resetFilter").onclick = () => { filter.company = filter.status = filter.kind = ""; monthPinned = false; if (curTab !== "report") curTab = thisMonth(); render(); };
 document.getElementById("addBtn").onclick = () => {
   if (curTab === "report") curTab = thisMonth();
-  const d = (curTab === "all" || curTab === thisMonth()) ? today() : curTab + "-01";
-  data.push({ id:newId(), date:d, company:"", site:"", manager:"", phone:"", period:"", periodStart:"", periodEnd:"", memo:"",
+  const dm = (curTab === "all" || curTab === "report") ? thisMonth() : curTab;
+  const nid = newId();
+  data.push({ id:nid, date:"", draftMonth:dm, company:"", site:"", manager:"", phone:"", period:"", periodStart:"", periodEnd:"", memo:"",
     longTerm:false, contractId:"", ltEnded:false, payments:[], rows:DEFAULT_ITEMS.map(newRow) });
   filter.company = filter.status = filter.kind = "";
   save(); render();
-  window.scrollTo({ top:document.body.scrollHeight, behavior:"smooth" });
+  const bi = data.findIndex(b => b.id === nid);
+  const inp = document.querySelector(`input[data-b="${bi}"][data-f="date"]`);
+  if (inp) { inp.scrollIntoView({ block:"center", behavior:"smooth" }); setTimeout(() => inp.focus(), 250); }
+  toast("날짜부터 입력하세요 (예: 9/28, 0928)");
 };
 /* ---------- 인쇄용 표 만들기 ---------- */
 let lastList = [];
