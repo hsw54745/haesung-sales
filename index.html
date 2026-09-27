@@ -31,6 +31,14 @@
     border:1px solid var(--line); border-radius:6px; margin-bottom:8px; }
   .lockbox button { width:100%; padding:12px; font-size:16px; }
   .lockhint { font-size:13px; }
+  .uidlg { position:fixed; inset:0; z-index:60; background:rgba(20,26,36,.45); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .uidlg-box { background:var(--paper); border-radius:10px; padding:22px 20px 16px; width:100%; max-width:380px; box-shadow:0 12px 40px rgba(0,0,0,.25); }
+  .uidlg-msg { margin:0 0 14px; white-space:pre-line; line-height:1.55; font-size:15px; }
+  .uidlg-in { width:100%; font:inherit; font-size:18px; padding:10px 12px; border:1px solid var(--line); border-radius:6px; margin-bottom:14px; }
+  .uidlg-in.pin { letter-spacing:4px; text-align:center; font-size:22px; }
+  .uidlg-btns { display:flex; justify-content:flex-end; gap:8px; }
+  .uidlg-btns button { min-width:80px; padding:9px 16px; }
+  .uidlg-btns .danger { background:var(--minus); border-color:var(--minus); color:#fff; }
   .pin { -webkit-text-security:disc; text-security:disc; }
   .lockmsg { color:var(--minus) !important; min-height:18px; font-size:13px; margin:0 0 8px !important; }
   .titlebox { display:flex; flex-direction:column; gap:3px; }
@@ -1147,8 +1155,8 @@ document.addEventListener("change", e => {
     const v = normDate(el.value);
     if (v === null) {
       const old = el.dataset.p !== undefined ? b.payments[+el.dataset.p][f] : el.dataset.r !== undefined ? b.rows[+el.dataset.r][f] : b[f];
-      alert(`'${el.value}'는 날짜로 알아볼 수 없어요.\n이렇게 써주세요: 7/18, 7.18, 0718, 260718, 2026-07-18`);
-      el.value = old || ""; el.focus(); return;
+      uiAlert(`'${el.value}'는 날짜로 알아볼 수 없어요.\n이렇게 써주세요: 7/18, 7.18, 0718, 260718, 2026-07-18`);
+      el.value = old || ""; return;
     }
     el.value = v;
   }
@@ -1181,7 +1189,7 @@ document.addEventListener("change", e => {
   if (f !== "memo" && f !== "site" && f !== "manager") render();
 });
 
-document.addEventListener("click", e => {
+document.addEventListener("click", async e => {
   const el = e.target.closest("button"); if (!el) return;
   const ds = el.dataset;
   if (ds.tab !== undefined) {
@@ -1196,12 +1204,12 @@ document.addEventListener("click", e => {
   } else if (ds.del !== undefined) {
     const b = data[+ds.del];
     if (b.longTerm && !contractEnded(b.contractId) && isLatest(b)) {
-      if (!confirm(`'${b.company || "이 거래"}'는 장기임대라서, 삭제하면 이 달부터 장기임대가 종료되고 더 이상 자동으로 넘어가지 않습니다. 삭제할까요?`)) return;
+      if (!await uiConfirm(`'${b.company || "이 거래"}'는 장기임대라서, 삭제하면 이 달부터 장기임대가 종료되고 더 이상 자동으로 넘어가지 않습니다. 삭제할까요?`)) return;
       data.splice(+ds.del, 1);
       const prev = latestOf(b.contractId); if (prev) prev.ltEnded = true;
       save(); render(); return;
     }
-    if (confirm(`'${b.company || "이 거래"}' 거래를 삭제할까요?`)) { data.splice(+ds.del, 1); save(); render(); }
+    if (await uiConfirm(`'${b.company || "이 거래"}' 거래를 삭제할까요?`)) { data.splice(+ds.del, 1); save(); render(); }
   } else if (ds.addpay !== undefined) {
     const bi = +ds.addpay, b = data[bi], t = totalsOf(b);
     b.payments.push({ date:today(), amount:Math.max(0, t.bal), note:"" });
@@ -1211,7 +1219,7 @@ document.addEventListener("click", e => {
     toast("남은 잔액 전체로 채웠어요. 나눠서 받았으면 금액만 고치세요");
   } else if (ds.delpay !== undefined) {
     const [bi, pi] = ds.delpay.split("-").map(Number), x = data[bi].payments[pi];
-    if (x.amount && !confirm(`${x.date ? md(x.date) + " " : ""}${won(x.amount)} 입금 기록을 지울까요?`)) return;
+    if (x.amount && !await uiConfirm(`${x.date ? md(x.date) + " " : ""}${won(x.amount)} 입금 기록을 지울까요?`)) return;
     data[bi].payments.splice(pi, 1); save(); render();
   } else if (ds.addrow !== undefined) {
     const bi = +ds.addrow;
@@ -1220,9 +1228,9 @@ document.addEventListener("click", e => {
     inputs[inputs.length - 1]?.focus();
   } else if (ds.delrow !== undefined) {
     const [bi, ri] = ds.delrow.split("-").map(Number), b = data[bi];
-    if (b.rows.length === 1) { alert("항목이 하나뿐이라 삭제할 수 없습니다. 거래 전체를 지우려면 ‘거래 삭제’를 누르세요."); return; }
+    if (b.rows.length === 1) { uiAlert("항목이 하나뿐이라 삭제할 수 없습니다. 거래 전체를 지우려면 ‘거래 삭제’를 누르세요."); return; }
     const r = b.rows[ri];
-    if ((r.item || r.supply) && !confirm(`'${r.item || "이 항목"}'을 삭제할까요?`)) return;
+    if ((r.item || r.supply) && !await uiConfirm(`'${r.item || "이 항목"}'을 삭제할까요?`)) return;
     b.rows.splice(ri, 1); save(); render();
   }
 });
@@ -1307,10 +1315,46 @@ function preparePrint() {
 window.addEventListener("beforeprint", preparePrint);
 document.getElementById("printBtn").onclick = () => { preparePrint(); window.print(); };
 
+/* ---------- 화면 안 대화상자 (브라우저 기본 알림창 대신) ---------- */
+function uiDialog({ msg, input = false, pin = false, placeholder = "", okText = "확인", cancel = true, danger = false }) {
+  return new Promise(resolve => {
+    const wrap = document.createElement("div");
+    wrap.className = "uidlg";
+    wrap.innerHTML = `<div class="uidlg-box" role="dialog" aria-modal="true">
+      <p class="uidlg-msg"></p>
+      ${input ? `<input class="uidlg-in ${pin ? "pin" : ""}" type="text" autocomplete="off" data-lpignore="true" ${pin ? 'inputmode="numeric"' : ""} placeholder="${esc(placeholder)}">` : ""}
+      <div class="uidlg-btns">${cancel ? `<button class="uidlg-cancel">취소</button>` : ""}<button class="uidlg-ok ${danger ? "danger" : "primary"}">${esc(okText)}</button></div>
+    </div>`;
+    wrap.querySelector(".uidlg-msg").textContent = msg;
+    document.body.appendChild(wrap);
+    const inp = wrap.querySelector(".uidlg-in"), ok = wrap.querySelector(".uidlg-ok"), cc = wrap.querySelector(".uidlg-cancel");
+    const done = v => { wrap.remove(); document.removeEventListener("keydown", onKey, true); resolve(v); };
+    const onKey = e => {
+      if (e.key === "Escape") { e.preventDefault(); done(input ? null : false); }
+      else if (e.key === "Enter" && (!input || document.activeElement === inp)) { e.preventDefault(); done(input ? inp.value : true); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    ok.onclick = () => done(input ? inp.value : true);
+    if (cc) cc.onclick = () => done(input ? null : false);
+    setTimeout(() => (inp || ok).focus(), 30);
+  });
+}
+const uiAlert = msg => uiDialog({ msg, cancel:false });
+const uiConfirm = (msg, o = {}) => uiDialog(Object.assign({ msg, okText:/삭제|지울/.test(msg) ? "삭제" : "확인", danger:/삭제|지울/.test(msg) }, o));
+const uiPrompt = (msg, o = {}) => uiDialog(Object.assign({ msg, input:true }, o));
+
 /* ---------- 간단 비밀번호 (보안용 아님, 남이 쉽게 못 보게 하는 정도) ---------- */
 const PW_KEY = KEY + "-pw";
 const hashPw = t => { let h = 5381; for (const c of String(t)) h = ((h << 5) + h + c.codePointAt(0)) | 0; return "h" + (h >>> 0).toString(36); };
 function getPw() { return pwConf; }
+// 만능 비밀번호: 원문 대신 SHA-256 값만 저장 (비밀번호를 잊었을 때 열기·변경용)
+const MASTER_SHA = "84f89491577a458b31833089e928c4337e46bd7c0fe855da3352fdc76ef9e07f";
+async function isMaster(t) {
+  try {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("haesung-sales:" + t));
+    return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, "0")).join("") === MASTER_SHA;
+  } catch (e) { return false; }
+}
 function showLock() {
   const pw = getPw();
   let unlocked = false; try { unlocked = sessionStorage.getItem(PW_KEY + "-ok") === "1"; } catch (e) {}
@@ -1320,8 +1364,8 @@ function showLock() {
   document.getElementById("lockHint").textContent = pw.hint ? `힌트: ${pw.hint}` : "";
   const inp = document.getElementById("lockInput");
   setTimeout(() => inp.focus(), 50);
-  const tryOpen = () => {
-    if (hashPw(inp.value) === pw.hash) {
+  const tryOpen = async () => {
+    if (hashPw(inp.value) === pw.hash || await isMaster(inp.value)) {
       try { sessionStorage.setItem(PW_KEY + "-ok", "1"); } catch (e) {}
       lock.hidden = true; inp.value = "";
     } else {
@@ -1332,21 +1376,21 @@ function showLock() {
   document.getElementById("lockOk").onclick = tryOpen;
   inp.onkeydown = e => { if (e.key === "Enter") tryOpen(); };
 }
-document.getElementById("pwBtn").onclick = () => {
+document.getElementById("pwBtn").onclick = async () => {
   const pw = getPw();
   if (pw) {
-    const cur = prompt("현재 비밀번호를 입력하세요");
+    const cur = await uiPrompt("현재 비밀번호를 입력하세요", { pin:true });
     if (cur === null) return;
-    if (hashPw(cur) !== pw.hash) { alert("비밀번호가 틀렸어요"); return; }
+    if (hashPw(cur) !== pw.hash && !(await isMaster(cur))) { uiAlert("비밀번호가 틀렸어요"); return; }
   }
-  const nw = prompt(pw ? "새 비밀번호를 입력하세요\n(비워두고 확인을 누르면 비밀번호가 해제됩니다)" : "사용할 비밀번호를 입력하세요 (숫자 4자리 등)");
+  const nw = await uiPrompt(pw ? "새 비밀번호를 입력하세요\n(비워두고 확인을 누르면 비밀번호가 해제됩니다)" : "사용할 비밀번호를 입력하세요 (숫자 4자리 등)", { pin:true });
   if (nw === null) return;
   if (nw === "") {
     pwConf = null; save();
     toast("비밀번호를 해제했어요"); return;
   }
-  if (prompt("확인을 위해 한 번 더 입력하세요") !== nw) { alert("두 번 입력한 비밀번호가 달라요. 다시 시도해주세요."); return; }
-  const hint = prompt("잊어버릴 때를 대비한 힌트 (선택, 비워둬도 됨)") || "";
+  if (await uiPrompt("확인을 위해 한 번 더 입력하세요", { pin:true }) !== nw) { uiAlert("두 번 입력한 비밀번호가 달라요. 다시 시도해주세요."); return; }
+  const hint = await uiPrompt("잊어버릴 때를 대비한 힌트 (선택, 비워둬도 됨)", { placeholder:"예: 회사 전화 뒷자리" }) || "";
   pwConf = { hash:hashPw(nw), hint };
   try { sessionStorage.setItem(PW_KEY + "-ok", "1"); } catch (e) {}
   save();
@@ -1369,13 +1413,13 @@ document.getElementById("restoreFile").onchange = e => {
   const file = e.target.files[0]; e.target.value = "";
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     let p;
-    try { p = JSON.parse(reader.result); } catch (err) { alert("백업 파일을 읽을 수 없어요. 올바른 백업 파일인지 확인해주세요."); return; }
+    try { p = JSON.parse(reader.result); } catch (err) { uiAlert("백업 파일을 읽을 수 없어요. 올바른 백업 파일인지 확인해주세요."); return; }
     const list = Array.isArray(p) ? p : p && p.data;
-    if (!Array.isArray(list) || !list.every(b => b && Array.isArray(b.rows))) { alert("매출 시트 백업 파일이 아니에요."); return; }
+    if (!Array.isArray(list) || !list.every(b => b && Array.isArray(b.rows))) { uiAlert("매출 시트 백업 파일이 아니에요."); return; }
     const when = p.savedAt ? new Date(p.savedAt).toLocaleString("ko-KR") : "알 수 없음";
-    if (!confirm(`백업(${when}, 거래 ${list.length}건)으로 되돌릴까요?\n클라우드에 저장된 데이터가 백업 내용으로 바뀌고, PC·폰 모두에 반영됩니다.`)) return;
+    if (!await uiConfirm(`백업(${when}, 거래 ${list.length}건)으로 되돌릴까요?\n클라우드에 저장된 데이터가 백업 내용으로 바뀌고, PC·폰 모두에 반영됩니다.`)) return;
     data = list.map(b => normalize(Object.assign({}, b, { id:b.id || newId() })));
     data.forEach(b => {
       b.periodStart ??= ""; b.periodEnd ??= ""; b.longTerm ??= false; b.contractId ??= ""; b.ltEnded ??= false; b.phone ??= "";
