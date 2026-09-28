@@ -7,6 +7,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#1f5fa8">
+<meta name="robots" content="noindex, nofollow, noarchive">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="해성 매출">
@@ -37,7 +38,7 @@
     border:1px solid var(--line); border-radius:6px; margin-bottom:8px; }
   .lockbox button { width:100%; padding:12px; font-size:16px; }
   .lockhint { font-size:13px; }
-  .lg-in { width:100%; font:inherit; font-size:16px; padding:10px 12px; border:1px solid var(--line); border-radius:6px; margin-bottom:8px; }
+
   .uidlg { position:fixed; inset:0; z-index:60; background:rgba(20,26,36,.45); display:flex; align-items:center; justify-content:center; padding:20px; }
   .uidlg-box { background:var(--paper); border-radius:10px; padding:22px 20px 16px; width:100%; max-width:380px; box-shadow:0 12px 40px rgba(0,0,0,.25); }
   .uidlg-msg { margin:0 0 14px; white-space:pre-line; line-height:1.55; font-size:15px; }
@@ -527,9 +528,8 @@ const ROOT = "sales_records";
 const SYNC_KEY = KEY + "-sync";
 let cloud = { ready:false, online:navigator.onLine, busy:false, lastOk:null, loaded:false, error:"" };
 let fbReady = false, cachedToken = "", tokenAt = 0;
-// 매출 앱 전용 로그인(이메일 계정). 입출고 앱과 로그인 상태가 섞이지 않게 이름을 따로 둔 앱으로 시작
 let fbApp = null, fbAuth = null;
-try { fbApp = firebase.initializeApp(FIREBASE_CONFIG, "sales"); fbAuth = fbApp.auth(); fbReady = true; } catch (e) { fbReady = false; }
+try { fbApp = firebase.initializeApp(FIREBASE_CONFIG, "sales"); fbAuth = fbApp.auth(); fbAuth.signInAnonymously().catch(() => {}); fbReady = true; } catch (e) { fbReady = false; }
 
 // 서버에 마지막으로 보낸 상태(비교용)
 let sync = { sent:{}, meta:"" };
@@ -542,45 +542,11 @@ const stable = v => Array.isArray(v) ? "[" + v.map(stable).join(",") + "]"
 function waitUser(ms) {
   return new Promise(res => {
     if (!fbReady) return res(null);
-    const ok = u => u && !u.isAnonymous;
-    if (ok(fbAuth.currentUser)) return res(fbAuth.currentUser);
+    const u = fbAuth.currentUser; if (u) return res(u);
     let done = false;
-    const un = fbAuth.onAuthStateChanged(x => { if (ok(x) && !done) { done = true; un(); res(x); } });
-    setTimeout(() => { if (!done) { done = true; un(); res(ok(fbAuth.currentUser) ? fbAuth.currentUser : null); } }, ms);
+    const un = fbAuth.onAuthStateChanged(x => { if (x && !done) { done = true; un(); res(x); } });
+    setTimeout(() => { if (!done) { done = true; un(); res(fbAuth.currentUser || null); } }, ms);
   });
-}
-// 이 기기에서 처음 한 번만 이메일 계정으로 로그인 (이후엔 자동 유지)
-function showLogin() {
-  return new Promise(resolve => {
-    const wrap = document.createElement("div");
-    wrap.className = "lock";
-    wrap.innerHTML = `<form class="lockbox" autocomplete="on">
-      <h2>해성발전기 매출 시트</h2>
-      <p>이 기기에서 처음 한 번만 로그인하면 돼요</p>
-      <input class="lg-in" type="email" name="email" autocomplete="username" placeholder="이메일" required>
-      <input class="lg-in" type="password" name="password" autocomplete="current-password" placeholder="계정 비밀번호" required>
-      <p class="lockmsg"></p>
-      <button class="primary" type="submit">로그인</button>
-    </form>`;
-    document.body.appendChild(wrap);
-    const f = wrap.querySelector("form"), msg = wrap.querySelector(".lockmsg");
-    setTimeout(() => f.email.focus(), 50);
-    f.onsubmit = async e => {
-      e.preventDefault(); msg.textContent = "확인 중…";
-      try {
-        const cred = await fbAuth.signInWithEmailAndPassword(f.email.value.trim(), f.password.value);
-        wrap.remove(); resolve(cred.user);
-      } catch (err) {
-        const c = String(err && err.code || "");
-        msg.textContent = /network/.test(c) ? "인터넷 연결을 확인해주세요" : /too-many/.test(c) ? "너무 많이 시도했어요. 잠시 후 다시 해주세요" : "이메일 또는 비밀번호가 틀렸어요";
-      }
-    };
-  });
-}
-async function ensureLogin() {
-  if (!fbReady) return null;
-  const u = await waitUser(4000);
-  return u || showLogin();
 }
 async function authQ() {
   if (cachedToken && Date.now() - tokenAt < 45 * 60000) return "auth=" + encodeURIComponent(cachedToken);
@@ -1725,7 +1691,6 @@ mq.addEventListener("change", render);
 (async function boot() {
   render(); setStatus();
   document.getElementById("view").insertAdjacentHTML("afterbegin", `<p class="muted" id="loadingMsg">클라우드에서 불러오는 중…</p>`);
-  await ensureLogin();
   try { await pullCloud(); } catch (e) { cloud.online = false; cloud.error = String(e.message || e); }
   fixups();
   const made = ensureCarryOver();
