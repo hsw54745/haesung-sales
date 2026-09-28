@@ -99,6 +99,11 @@
   .callbtn { flex:none; display:flex; align-items:center; padding:0 16px; border-radius:4px; background:var(--done);
     color:#fff; text-decoration:none; font-size:15px; font-weight:500; }
   td.kindcell select.cell { height:30px; }
+  .invchk { display:inline-flex; align-items:center; gap:4px; margin-top:6px; padding:3px 7px; border:1px solid var(--line);
+    border-radius:4px; background:rgba(255,255,255,.75); font-size:12px; color:var(--muted); cursor:pointer; white-space:nowrap; }
+  .invchk input { width:15px; height:15px; margin:0; accent-color:#1e7d4f; }
+  .invchk.on { color:#fff; background:#1e7d4f; border-color:#1e7d4f; }
+  .card > .invchk { font-size:14px; padding:7px 10px; margin:0 0 10px; }
   .endchk { display:inline-flex; align-items:center; gap:4px; margin-top:6px; font-size:12px; color:var(--muted);
     cursor:pointer; padding:3px 6px; border:1px solid var(--line); border-radius:4px; background:rgba(255,255,255,.7); white-space:nowrap; }
   .endchk input { width:15px; height:15px; margin:0; accent-color:#444; }
@@ -707,7 +712,7 @@ function makeNext(b) {
   return {
     id:`${b.contractId}_${s.replace(/-/g, "")}`, date:s, company:b.company, site:b.site, manager:b.manager, phone:b.phone || "", period:"",
     periodStart:s, periodEnd:e, memo:"", contractEnd:b.contractEnd || "",
-    longTerm:true, contractId:b.contractId, ltEnded:last, needCheck:true,
+    longTerm:true, contractId:b.contractId, ltEnded:last, needCheck:true, invoiced:false,
     rows:b.rows.map(r => ({ item:r.item, supply:r.supply || 0, vat:r.vat ?? null })), payments:[]
   };
 }
@@ -734,6 +739,10 @@ function toast(msg) {
   const t = document.getElementById("toast");
   t.textContent = msg; t.classList.add("show");
   clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 3500);
+}
+// 계산서 발행 확인 (표시용 체크, 계산에는 영향 없음)
+function invChk(b, bi) {
+  return `<label class="invchk ${b.invoiced ? "on" : ""}"><input type="checkbox" data-b="${bi}" data-f="invoiced" ${b.invoiced ? "checked" : ""}>${b.invoiced ? "계산서 발행함" : "계산서 발행"}</label>`;
 }
 function amtCheck(b, bi) {
   if (!b.longTerm || roundOf(b) < 2) return "";
@@ -903,7 +912,7 @@ function tableView(list) {
           <span class="ballabel">잔액</span><span class="balamt ${t.bal > 0 ? "minus" : ""}">${won(t.bal)}</span>
         </td>`; }
       if (ri === 0) body += `
-        <td rowspan="${span}" class="status ${stClass(b)}">${badges(b)}${amtCheck(b, bi)}</td>
+        <td rowspan="${span}" class="status ${stClass(b)}">${badges(b)}${amtCheck(b, bi)}${invChk(b, bi)}</td>
         <td rowspan="${span}" class="memo"><textarea data-b="${bi}" data-f="memo" placeholder="메모 입력">${esc(b.memo)}</textarea></td>`;
       body += "</tr>";
     });
@@ -963,6 +972,7 @@ function cardView(list) {
         <input class="f" list="dl-company" data-b="${bi}" data-f="company" value="${esc(b.company)}" placeholder="업체명">
         <div class="card-badges">${badges(b)}</div>
       </div>
+      ${invChk(b, bi)}
       ${amtCheck(b, bi)}
       <div class="grid2">
         <label>날짜<input class="f" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" data-need="${b.date ? 0 : 1}" value="${esc(b.date)}"></label>
@@ -1144,6 +1154,11 @@ function render() {
   document.getElementById("count").textContent = `${list.length}건 표시 / 전체 ${data.length}건`;
   buildDatalists();
   document.querySelectorAll("#view input, #view textarea").forEach(i => { i.setAttribute("autocomplete", "off"); i.setAttribute("data-lpignore", "true"); });
+  updateSummary();
+}
+// 위쪽 합계·표 아래 합계·항목별 합계 다시 계산 (입력하는 도중에도 호출)
+function updateSummary() {
+  const list = lastList;
   const t = list.map(([b]) => totalsOf(b)).reduce((a, c) => ({
     supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal
   }), { supply:0, vat:0, paid:0, bal:0 });
@@ -1177,7 +1192,27 @@ document.addEventListener("input", e => {
   } else b[f] = el.value;
   clearTimeout(typingTimer);
   typingTimer = setTimeout(save, 1000);
+  if (f === "supply" || f === "vat" || f === "amount") liveUpdate(el, b);
 });
+// 금액 입력 중 바로 반영: 그 줄 합계, 청구금액/잔액, 위쪽 합계
+function liveUpdate(el, b) {
+  const t = totalsOf(b);
+  if (el.dataset.r !== undefined) {
+    const r = b.rows[+el.dataset.r];
+    const tr = el.closest("tr"), item = el.closest(".item");
+    const cell = tr && tr.querySelector("td.auto"); if (cell) cell.textContent = won(lineOf(r));
+    const ib = item && item.querySelector(".item-bal b"); if (ib) ib.textContent = won(lineOf(r));
+    if (el.dataset.f === "supply" && r.vat === null) { const v = document.querySelector(`input[data-b="${el.dataset.b}"][data-r="${el.dataset.r}"][data-f="vat"]`); if (v) v.placeholder = (fmt(vatOf(r)) || "0") + (item ? " (자동)" : ""); }
+  }
+  const scope = el.closest("tbody.block") || el.closest(".card");
+  if (scope) {
+    const amts = scope.querySelectorAll(".balcell .balamt");
+    if (amts.length === 2) { amts[0].textContent = won(t.supply + t.vat); amts[1].textContent = won(t.bal); amts[1].classList.toggle("minus", t.bal > 0); }
+    const ct = scope.querySelectorAll(".card-total b");
+    if (ct.length === 3) { ct[0].textContent = won(t.supply + t.vat); ct[1].textContent = won(t.paid); ct[2].textContent = won(t.bal); }
+  }
+  updateSummary();
+}
 function flushSave() {
   const a = document.activeElement;
   if (a && a.dataset && a.dataset.b !== undefined) a.blur();   // 입력 중이던 칸 마무리 → 저장
@@ -1219,6 +1254,7 @@ document.addEventListener("change", e => {
     if (f === "amount") x.amount = num(el.value); else x[f] = el.value;
     save(); return render();
   }
+  if (f === "invoiced") { b.invoiced = el.checked; save(); return render(); }
   if (f === "endHere") { setEndHere(b, el.checked); return; }
   if (f === "checked") { b.needCheck = !el.checked; save(); return render(); }
   if (f === "kind") {
@@ -1364,7 +1400,7 @@ function printView(list) {
       body += `<td class="l nw">${esc(r.item)}</td><td class="r">${fmt(r.supply) || "0"}</td><td class="r">${fmt(vatOf(r)) || "0"}</td><td class="r">${fmt(lineOf(r)) || "0"}</td>`;
       if (ri === 0) body += `<td rowspan="${span}" class="r">${pays}</td>
         <td rowspan="${span}" class="r"><span class="muted2">청구금액</span><br><b>${won(t.supply + t.vat)}</b><br><span class="muted2">잔액</span><br><b>${won(t.bal)}</b></td>
-        <td rowspan="${span}" class="pst nw">${stTxt}</td><td rowspan="${span}" class="pmemo">${esc(b.memo)}</td>`;
+        <td rowspan="${span}" class="pst nw">${stTxt}<br><span class="muted2">${b.invoiced ? "계산서 ✓" : "계산서 미발행"}</span></td><td rowspan="${span}" class="pmemo">${esc(b.memo)}</td>`;
       body += "</tr>";
     });
     body += "</tbody>";
@@ -1515,14 +1551,14 @@ document.getElementById("csvBtn").onclick = () => {
     a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" }));
     a.download = `매출합계_${reportYear}.csv`; a.click(); return;
   }
-  const lines = [["날짜","업체명","현장주소","담당자","연락처","임대기간","임대구분","공급내역","공급가액","부가세","합계","입금내역","입금합계","잔액","상태","비고"]];
+  const lines = [["날짜","업체명","현장주소","담당자","연락처","임대기간","임대구분","공급내역","공급가액","부가세","합계","입금내역","입금합계","잔액","상태","계산서","비고"]];
   data.filter(visible).forEach(b => {
     const per = b.periodStart || b.periodEnd ? `${b.periodStart}~${b.periodEnd}` : (b.period || "");
     const kind = b.longTerm ? `장기 ${roundOf(b)}개월차${b.ltEnded ? " (종료)" : ""}` : "단기";
     const st = isDone(b) ? "입금완료" : isPartial(b) ? "일부입금" : "미완료";
     const t = totalsOf(b), pays = b.payments.map(x => `${x.date} ${x.amount}`).join(" / ");
     b.rows.forEach((r, i) => lines.push([b.date, b.company, b.site, b.manager, b.phone || "", per, kind, r.item, r.supply || 0,
-      vatOf(r), lineOf(r), i === 0 ? pays : "", i === 0 ? t.paid : "", i === 0 ? t.bal : "", i === 0 ? st : "", i === 0 ? b.memo : ""]));
+      vatOf(r), lineOf(r), i === 0 ? pays : "", i === 0 ? t.paid : "", i === 0 ? t.bal : "", i === 0 ? st : "", i === 0 ? (b.invoiced ? "발행" : "미발행") : "", i === 0 ? b.memo : ""]));
   });
   const csv = "\uFEFF" + lines.map(l => l.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
   const a = document.createElement("a");
