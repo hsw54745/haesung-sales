@@ -99,11 +99,12 @@
   .callbtn { flex:none; display:flex; align-items:center; padding:0 16px; border-radius:4px; background:var(--done);
     color:#fff; text-decoration:none; font-size:15px; font-weight:500; }
   td.kindcell select.cell { height:30px; }
-  .invchk { display:inline-flex; align-items:center; gap:4px; margin-top:6px; padding:3px 7px; border:1px solid var(--line);
+  .invchk { display:flex; width:max-content; align-items:center; gap:4px; margin:6px auto 0; padding:3px 7px; border:1px solid var(--line);
     border-radius:4px; background:rgba(255,255,255,.75); font-size:12px; color:var(--muted); cursor:pointer; white-space:nowrap; }
   .invchk input { width:15px; height:15px; margin:0; accent-color:#1e7d4f; }
   .invchk.on { color:#fff; background:#1e7d4f; border-color:#1e7d4f; }
   .card > .invchk { font-size:14px; padding:7px 10px; margin:0 0 10px; }
+  td.status .badge { vertical-align:middle; }
   .endchk { display:inline-flex; align-items:center; gap:4px; margin-top:6px; font-size:12px; color:var(--muted);
     cursor:pointer; padding:3px 6px; border:1px solid var(--line); border-radius:4px; background:rgba(255,255,255,.7); white-space:nowrap; }
   .endchk input { width:15px; height:15px; margin:0; accent-color:#444; }
@@ -122,8 +123,9 @@
   .due button { background:var(--lt); border-color:var(--lt); color:#fff; }
 
   .summary { display:flex; flex-wrap:wrap; gap:28px; padding:14px 24px; background:var(--paper); border-bottom:1px solid var(--line); }
-  .summary div span { display:block; color:var(--muted); font-size:12px; }
-  .summary div strong { font-size:18px; font-weight:600; }
+  .summary { gap:14px 40px !important; }
+  .summary > div:not(.catline) > span { display:block; color:var(--muted); font-size:14px; margin-bottom:2px; }
+  .summary div strong { font-size:26px; font-weight:700; letter-spacing:-.3px; }
 
   .wrap { padding:20px 24px 60px; overflow-x:auto; }
   table { border-collapse:collapse; width:100%; min-width:1740px; background:var(--paper); }
@@ -204,6 +206,14 @@
   .card.st-open { background:#fbe6e3; border-color:#ecc2bc; }
   .card .item { background:rgba(255,255,255,.55); }
   .card-total { background:rgba(255,255,255,.6) !important; }
+  .tabs { border-bottom-color:var(--cur, var(--line-strong)) !important; border-bottom-width:3px !important; }
+  .tab.month { background:color-mix(in srgb, var(--mc) 13%, #fff); color:var(--mc); border-color:color-mix(in srgb, var(--mc) 35%, #fff); font-weight:600; }
+  .tab.month small { color:color-mix(in srgb, var(--mc) 75%, #000); font-weight:400; }
+  .tab.month:hover { background:color-mix(in srgb, var(--mc) 22%, #fff); }
+  .tab.month.on { background:var(--mc); color:#fff; border-color:var(--mc); border-bottom:3px solid var(--mc); margin-bottom:-3px; }
+  .tab.month.on small { color:rgba(255,255,255,.85); }
+  .tab.month.on .warn { color:#ffe28a; }
+  .tab.month.on .tabdel { color:rgba(255,255,255,.8); }
   .tab.report { background:#1f5fa8; color:#fff; border-color:#1f5fa8; margin-right:6px; }
   .tab.report.on { background:var(--paper); color:#1f5fa8; border-color:var(--line-strong); }
   .report { max-width:1100px; }
@@ -231,9 +241,9 @@
   .rtable tr.y td.minus { color:#ffb4aa; }
   .rtable .link { font-size:14px; padding:0; }
   .catline { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; margin-top:-4px; }
-  .catlabel { font-size:13px; color:var(--muted); margin-right:2px; }
-  .catchip { display:inline-flex; gap:8px; align-items:baseline; background:var(--head); border-radius:14px; padding:5px 12px; font-size:15px; font-weight:600; }
-  .catchip em { font-style:normal; font-weight:500; color:var(--ink); font-size:14px; }
+  .catlabel { font-size:15px; color:var(--muted); margin-right:4px; }
+  .catchip { white-space:nowrap; display:inline-flex; gap:8px; align-items:baseline; background:var(--head); border-radius:16px; padding:6px 14px; font-size:18px; font-weight:700; }
+  .catchip em { font-style:normal; font-weight:500; color:var(--ink); font-size:15px; }
   .cathead { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:28px 0 10px; }
   .cathead h3 { margin:0; font-size:17px; }
   .cathead select { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:4px; margin-left:4px; }
@@ -291,7 +301,8 @@
     .filters select { width:100%; min-width:0; font-size:16px; }
     .filters .count { grid-column:1 / -1; margin:0; }
     .summary { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:12px 16px; }
-    .summary div strong { font-size:16px; }
+    .summary div strong { font-size:20px; }
+    .summary > div:not(.catline) > span { font-size:13px; }
     .tabs { padding:8px 12px 0; }
     .qcards { grid-template-columns:1fr 1fr; }
     .rtable { min-width:0; font-size:13px; }
@@ -299,7 +310,9 @@
     .rtable:not(.ctable) tr > :nth-child(2), .rtable:not(.ctable) tr > :nth-child(3), .rtable:not(.ctable) tr > :nth-child(4) { display:none; }
     .ctable { min-width:620px; }
     .catline { gap:5px; }
-    .catchip { font-size:14px; padding:4px 10px; }
+    .catchip { font-size:16px; padding:5px 11px; }
+    .catline { grid-column:1 / -1; }
+    .catlabel { flex-basis:100%; }
     .qcards .ytotal { grid-column:1 / -1; }
     .qcards strong { font-size:16px; }
     .tab { padding:8px 12px; }
@@ -1124,17 +1137,23 @@ function buildDatalists() {
 }
 
 /* ---------- 그리기 ---------- */
+// 월마다 다른 색 (1월~12월)
+const MONTH_COLORS = ["#2c6fbb", "#7b4fb5", "#2e9e6a", "#d6457a", "#1f9aa8", "#e0862e",
+                      "#c94040", "#3b8f3b", "#b07a1f", "#5a5fcf", "#8a5a44", "#2f4f8f"];
+const monthColor = m => MONTH_COLORS[(+m.slice(5, 7) - 1 + 12) % 12];
 function renderTabs() {
   const months = [...new Set([...data.map(monthOf).filter(Boolean), thisMonth(), ...extraMonths])].sort();
   if (curTab !== "all" && curTab !== "report" && !months.includes(curTab)) curTab = thisMonth();
   const cnt = m => data.filter(b => monthOf(b) === m);
+  const tabsEl = document.getElementById("tabs");
+  tabsEl.style.setProperty("--cur", curTab.length === 7 ? monthColor(curTab) : "var(--line-strong)");
   document.getElementById("tabs").innerHTML =
     `<button class="tab report ${curTab === "report" ? "on" : ""}" data-tab="report">매출 합계</button>` +
     `<button class="tab ${curTab === "all" ? "on" : ""}" data-tab="all">전체</button>` +
     `<button class="tab add prev" id="addPrevMonth" title="이전 달 시트를 만듭니다">+ ${monthLabel(addMonths(months[0] + "-01", -1).slice(0, 7))}</button>` +
     months.map(m => {
       const l = cnt(m), lt = l.filter(b => b.longTerm).length;
-      return `<button class="tab ${curTab === m ? "on" : ""}" data-tab="${m}">${monthLabel(m)}<small>${l.length}건${lt ? ` (장기 ${lt})` : ""}${l.filter(b => b.needCheck && b.longTerm).length ? ` <span class="warn">확인 ${l.filter(b => b.needCheck && b.longTerm).length}</span>` : ""}</small>${curTab === m && m !== thisMonth() ? `<span class="tabdel" data-delmonth="${m}" title="이 달 시트 삭제" role="button" aria-label="${monthLabel(m)} 시트 삭제">×</span>` : ""}</button>`;
+      return `<button class="tab month ${curTab === m ? "on" : ""}" style="--mc:${monthColor(m)}" data-tab="${m}">${monthLabel(m)}<small>${l.length}건${lt ? ` (장기 ${lt})` : ""}${l.filter(b => b.needCheck && b.longTerm).length ? ` <span class="warn">확인 ${l.filter(b => b.needCheck && b.longTerm).length}</span>` : ""}</small>${curTab === m && m !== thisMonth() ? `<span class="tabdel" data-delmonth="${m}" title="이 달 시트 삭제" role="button" aria-label="${monthLabel(m)} 시트 삭제">×</span>` : ""}</button>`;
     }).join("") +
     (months.includes(maxMonth())
       ? `<span class="tab-note">${monthLabel(nextMonthKey(maxMonth()))} 시트는 ${monthLabel(maxMonth())}에 만들 수 있어요</span>`
