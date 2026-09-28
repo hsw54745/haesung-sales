@@ -177,8 +177,11 @@
   .payadd { display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-height:22px; }
   .payadd .link { padding:2px 0; }
   .nopay { font-size:12px; padding:4px 0; }
-  td.balcell { text-align:right; padding:6px 10px; font-weight:700; font-size:17px; }
-  .ballabel { display:block; font-size:13px; font-weight:500; color:var(--ink); margin-bottom:4px; white-space:nowrap; }
+  td.balcell { text-align:right; padding:6px 10px; }
+  .ballabel { display:block; font-size:12px; font-weight:500; color:var(--muted); white-space:nowrap; }
+  .balamt { display:block; font-size:17px; font-weight:700; color:var(--ink); white-space:nowrap; margin-bottom:6px; }
+  .balamt:last-child { margin-bottom:0; }
+  .balamt.minus { color:var(--minus); }
   .cardpays { margin-bottom:10px; background:rgba(255,255,255,.55); border:1px solid var(--line); border-radius:4px; padding:10px; }
   .cp-title { font-size:12px; color:var(--muted); margin-bottom:6px; }
   .cardpays .pay { grid-template-columns:1fr 1.2fr 36px; gap:6px; }
@@ -385,6 +388,7 @@
 
 <div class="wrap" id="view"></div>
 <div id="printArea"></div>
+<datalist id="dl-items"></datalist><datalist id="dl-company"></datalist><datalist id="dl-manager"></datalist>
 
 <div id="lock" class="lock" hidden>
   <div class="lockbox">
@@ -452,7 +456,7 @@ function normalize(b) {
   }
   b.payments = b.payments.filter(Boolean).map(x => ({ date:x.date ?? "", amount:x.amount || 0, note:x.note ?? "" }));
   b.rows = b.rows.filter(Boolean).map(r => ({ item:r.item ?? "", supply:r.supply || 0, vat:r.vat ?? null }));
-  for (const k of ["draftMonth","date","company","site","manager","phone","period","periodStart","periodEnd","memo","contractId"]) b[k] ??= "";
+  for (const k of ["contractEnd","draftMonth","date","company","site","manager","phone","period","periodStart","periodEnd","memo","contractId"]) b[k] ??= "";
   b.longTerm = !!b.longTerm; b.ltEnded = !!b.ltEnded;
   if (!b.id) b.id = newId();
   return b;
@@ -626,17 +630,11 @@ let monthPinned = false;   // 월 필터로 직접 고른 달은 다른 필터�
 let reportYear = +thisMonth().slice(0, 4);
 let catBasis = "supply";   // 항목별 합계 기준: supply(공급가액) / total(부가세 포함)
 /* ---------- 항목별 분류 (공급내역 글자로 자동 구분) ---------- */
-const CATS = [
-  ["발전기", /발전/],
-  ["전선", /전선|케이블|cable/i],
-  ["분전함", /분전|배전/],
-  ["운임", /운임|운반|운송|배송|탁송|용차|배차/],
-  ["연료", /연료|경유|유류|기름|주유/],
-];
-// 알려진 이름은 묶고(발전기 120kw → 발전기), 처음 보는 항목은 첫 단어로 새 항목이 생김 (예: 크레인 25톤 → 크레인)
+// 표시 순서 (이 이름들이 먼저 나오고, 나머지는 가나다순)
+const CATS = [["발전기"], ["전선"], ["분전함"], ["배전반"], ["가설분전함"], ["운임"], ["연료"]];
+// 공급내역의 첫 단어가 그대로 항목이 됨: 발전기 120kw S-37 → 발전기, 가설분전반 → 가설분전반 (서로 묶지 않음)
 const catOf = item => {
   const s = String(item || "").trim();
-  for (const [n, re] of CATS) if (re.test(s)) return n;
   const w = (s.split(/\s+/)[0] || "").replace(/[\d.,~()\-]+.*$/, "");
   return w || "기타";
 };
@@ -691,12 +689,25 @@ function nextStart(b) {
   if (isISO(b.periodStart)) return addMonths(b.periodStart, 1);
   return addMonths(isISO(b.date) ? b.date : today(), 1);
 }
+// 장기 계약기간(예: 9/5~12/5)을 입력하면 이번 청구는 한 달(9/5~10/4)로 줄이고, 나머지는 매달 자동으로 넘어감
+function applyContract(b) {
+  if (!b.longTerm || !isISO(b.periodStart) || !isISO(b.periodEnd)) return false;
+  const oneMonthNext = addMonths(b.periodStart, 1);          // 한 달 뒤 같은 날
+  if (b.periodEnd < oneMonthNext) return false;               // 한 달(+1일) 이내면 그대로
+  const end = b.periodEnd;
+  contractBills(b.contractId).forEach(x => x.contractEnd = end);
+  b.contractEnd = end;
+  b.periodEnd = addDays(oneMonthNext, -1);
+  return end;
+}
 function makeNext(b) {
   const s = nextStart(b);
+  let e = addDays(addMonths(s, 1), -1), last = false;
+  if (b.contractEnd && isISO(b.contractEnd) && addMonths(s, 1) >= b.contractEnd) { e = b.contractEnd; last = true; }  // 마지막 달은 계약 종료일까지
   return {
     id:`${b.contractId}_${s.replace(/-/g, "")}`, date:s, company:b.company, site:b.site, manager:b.manager, phone:b.phone || "", period:"",
-    periodStart:s, periodEnd:addDays(addMonths(s, 1), -1), memo:"",
-    longTerm:true, contractId:b.contractId, ltEnded:false, needCheck:true,
+    periodStart:s, periodEnd:e, memo:"", contractEnd:b.contractEnd || "",
+    longTerm:true, contractId:b.contractId, ltEnded:last, needCheck:true,
     rows:b.rows.map(r => ({ item:r.item, supply:r.supply || 0, vat:r.vat ?? null })), payments:[]
   };
 }
@@ -711,7 +722,8 @@ function ensureCarryOver() {
   const made = [];
   ids.filter(id => !contractEnded(id)).forEach(id => {
     let cur = latestOf(id), guard = 0;
-    while (nextStart(cur).slice(0, 7) <= until && guard++ < 36) {
+    while (!cur.ltEnded && nextStart(cur).slice(0, 7) <= until && guard++ < 36) {
+      if (cur.contractEnd && isISO(cur.contractEnd) && nextStart(cur) > cur.contractEnd) { cur.ltEnded = true; break; }
       cur = makeNext(cur); data.push(cur); made.push(cur);
     }
   });
@@ -759,6 +771,7 @@ function setEndHere(b, on) {
     b.ltEnded = false;
     if (b.origEnd) { b.periodEnd = b.origEnd; }
     b.origEnd = null;
+    contractBills(b.contractId).forEach(x => x.contractEnd = "");
     save();
     const made = ensureCarryOver(); render();
     toast(made.length ? `종료를 취소하고 ${[...new Set(made.map(monthOf))].map(monthLabel).join(", ")}로 다시 넘겼어요` : "종료를 취소했어요");
@@ -813,6 +826,7 @@ function badges(b) {
     h += ` <span class="badge lt">${i + 1}개월차</span>`;
     if (b.ltEnded) h += ` <span class="badge end">이달 종료</span>`;
     if (i > 0 && monthOf(bills[i - 1])) h += `<span class="carry">${monthLabel(monthOf(bills[i - 1]))}에서 넘어옴</span>`;
+    if (b.contractEnd) h += `<span class="carry">계약 ~${b.contractEnd.slice(2).replace(/-/g, ".")}</span>`;
   }
   return h;
 }
@@ -862,10 +876,10 @@ function tableView(list) {
       body += "<tr>";
       if (ri === 0) body += `
         <td rowspan="${span}"><input class="cell" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" data-need="${b.date ? 0 : 1}" value="${esc(b.date)}"></td>
-        <td rowspan="${span}"><input class="cell" data-b="${bi}" data-f="company" value="${esc(b.company)}"></td>
+        <td rowspan="${span}"><input class="cell" list="dl-company" data-b="${bi}" data-f="company" value="${esc(b.company)}"></td>
         <td rowspan="${span}" class="sitecell"><textarea class="cellta" rows="3" data-b="${bi}" data-f="site" placeholder="현장주소">${esc(b.site)}</textarea></td>
         <td rowspan="${span}" class="mgr">
-          <input class="cell" data-b="${bi}" data-f="manager" value="${esc(b.manager)}" placeholder="담당자" aria-label="담당자">
+          <input class="cell" list="dl-manager" data-b="${bi}" data-f="manager" value="${esc(b.manager)}" placeholder="담당자" aria-label="담당자">
           <input class="cell phone" type="tel" inputmode="tel" data-b="${bi}" data-f="phone" value="${esc(b.phone)}" placeholder="연락처" aria-label="담당자 연락처">
         </td>
         <td rowspan="${span}" class="period">
@@ -877,14 +891,17 @@ function tableView(list) {
         <td rowspan="${span}" class="kindcell"><select class="cell kindsel ${b.longTerm ? "is-long" : ""}" data-b="${bi}" data-f="kind" aria-label="임대 구분">
             <option value="short" ${b.longTerm ? "" : "selected"}>단기</option><option value="long" ${b.longTerm ? "selected" : ""}>장기</option></select>${b.longTerm ? `<label class="endchk ${b.ltEnded ? "on" : ""}"><input type="checkbox" data-b="${bi}" data-f="endHere" ${b.ltEnded ? "checked" : ""}>이달 종료</label>` : ""}</td>`;
       body += `
-        <td><div class="itemcell"><span class="autow" data-v="${esc(r.item)}"><input class="cell" size="1" data-b="${bi}" data-r="${ri}" data-f="item" value="${esc(r.item)}" placeholder="항목명"></span>
+        <td><div class="itemcell"><span class="autow" data-v="${esc(r.item)}"><input class="cell" size="1" list="dl-items" data-b="${bi}" data-r="${ri}" data-f="item" value="${esc(r.item)}" placeholder="항목명"></span>
           <button title="항목 삭제" aria-label="항목 삭제" data-delrow="${bi}-${ri}">×</button></div></td>
         <td><input class="cell num" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="supply" value="${fmt(r.supply)}"></td>
         <td><input class="cell num vat-auto" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="vat" value="${autoVat ? "" : (r.vat === 0 ? "0" : fmt(r.vat))}" placeholder="${fmt(vatOf(r)) || "0"}"></td>
         <td class="auto">${won(lineOf(r))}</td>`;
       if (ri === 0) { const t = totalsOf(b); body += `
         <td rowspan="${span}" class="paycell">${payList(b, bi, false)}</td>
-        <td rowspan="${span}" class="balcell ${t.bal > 0 ? "minus" : ""}"><span class="ballabel">청구 ${won(t.supply + t.vat)}</span>${won(t.bal)}</td>`; }
+        <td rowspan="${span}" class="balcell">
+          <span class="ballabel">청구금액</span><span class="balamt">${won(t.supply + t.vat)}</span>
+          <span class="ballabel">잔액</span><span class="balamt ${t.bal > 0 ? "minus" : ""}">${won(t.bal)}</span>
+        </td>`; }
       if (ri === 0) body += `
         <td rowspan="${span}" class="status ${stClass(b)}">${badges(b)}${amtCheck(b, bi)}</td>
         <td rowspan="${span}" class="memo"><textarea data-b="${bi}" data-f="memo" placeholder="메모 입력">${esc(b.memo)}</textarea></td>`;
@@ -901,7 +918,7 @@ function tableView(list) {
       <th style="width:130px">날짜</th><th style="width:120px">업체명</th><th style="width:190px">현장주소</th>
       <th style="width:130px; white-space:nowrap">담당자 / 연락처</th><th style="width:150px">임대기간</th><th style="width:92px">임대구분</th><th style="width:200px">공급내역</th>
       <th style="width:110px">공급가액</th><th style="width:100px">부가세</th><th style="width:110px">합계</th>
-      <th style="width:250px">입금 내역 <small>(날짜 · 금액)</small></th><th style="width:150px">잔액</th><th style="width:170px">상태</th>
+      <th style="width:250px">입금 내역 <small>(날짜 · 금액)</small></th><th style="width:150px">청구금액 / 잔액</th><th style="width:170px">상태</th>
       <th style="width:200px">비고</th>
     </tr></thead>
     ${body}
@@ -931,7 +948,7 @@ function cardView(list) {
       const autoVat = r.vat === null || r.vat === undefined;
       return `<div class="item">
         <div class="item-top">
-          <input class="f" data-b="${bi}" data-r="${ri}" data-f="item" value="${esc(r.item)}" placeholder="항목명">
+          <input class="f" list="dl-items" data-b="${bi}" data-r="${ri}" data-f="item" value="${esc(r.item)}" placeholder="항목명">
           <button aria-label="항목 삭제" data-delrow="${bi}-${ri}">×</button>
         </div>
         <div class="grid2">
@@ -943,13 +960,13 @@ function cardView(list) {
     }).join("");
     return head + `<div class="card ${b.longTerm ? "is-lt" : ""} ${stClass(b)}">
       <div class="card-head">
-        <input class="f" data-b="${bi}" data-f="company" value="${esc(b.company)}" placeholder="업체명">
+        <input class="f" list="dl-company" data-b="${bi}" data-f="company" value="${esc(b.company)}" placeholder="업체명">
         <div class="card-badges">${badges(b)}</div>
       </div>
       ${amtCheck(b, bi)}
       <div class="grid2">
         <label>날짜<input class="f" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" data-need="${b.date ? 0 : 1}" value="${esc(b.date)}"></label>
-        <label>담당자<input class="f" data-b="${bi}" data-f="manager" value="${esc(b.manager)}"></label>
+        <label>담당자<input class="f" list="dl-manager" data-b="${bi}" data-f="manager" value="${esc(b.manager)}"></label>
         <label class="full">연락처
           <div class="phonerow">
             <input class="f" type="tel" inputmode="tel" data-b="${bi}" data-f="phone" value="${esc(b.phone)}" placeholder="010-0000-0000">
@@ -1059,7 +1076,7 @@ function catReport(bills) {
       <label>기준 <select id="rBasis">
         <option value="supply" ${catBasis === "supply" ? "selected" : ""}>공급가액</option>
         <option value="total" ${catBasis === "total" ? "selected" : ""}>합계 (부가세 포함)</option></select></label>
-      <span class="muted">공급내역 이름으로 자동 구분 (예: ‘발전기 120kw’ → 발전기, ‘운반비’ → 운임). 새 항목을 넣으면 여기에 생기고, 없애면 사라져요</span>
+      <span class="muted">공급내역의 첫 단어로 구분 (예: ‘발전기 120kw S-37’ → 발전기, ‘가설분전반’ → 가설분전반). 새 항목을 넣으면 여기에 생기고, 없애면 사라져요</span>
     </div>
     <div class="rwrap"><table class="rtable ctable">
       <thead><tr><th>구분</th>${used.map(n => `<th>${esc(n)}</th>`).join("")}<th>합계</th></tr></thead>
@@ -1085,6 +1102,15 @@ function reportCSV() {
     if (m % 3 === 2) { const q = sumL(byM.slice(m - 2, m + 1)); lines.push([`${(m + 1) / 3}분기 합계`, ...q, q.reduce((a, c) => a + c, 0)]); } });
   const yv = sumL(byM); lines.push([`${reportYear}년 합계`, ...yv, yv.reduce((a, c) => a + c, 0)]);
   return lines;
+}
+
+/* ---------- 자동완성: 예전에 입력한 이름을 많이 쓴 순서로 추천 ---------- */
+function buildDatalists() {
+  const count = get => { const m = new Map(); data.forEach(b => get(b).forEach(v => { v = String(v || "").trim(); if (v) m.set(v, (m.get(v) || 0) + 1); })); return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ko")).map(x => x[0]); };
+  const fill = (id, arr) => { const el = document.getElementById(id); const html = arr.slice(0, 300).map(v => `<option value="${esc(v)}"></option>`).join(""); if (el.innerHTML !== html) el.innerHTML = html; };
+  fill("dl-items", count(b => b.rows.map(r => r.item)));
+  fill("dl-company", count(b => [b.company]));
+  fill("dl-manager", count(b => [b.manager]));
 }
 
 /* ---------- 그리기 ---------- */
@@ -1116,6 +1142,7 @@ function render() {
   document.getElementById("view").innerHTML = curTab === "report" ? reportView(list.map(([b]) => b))
     : mq.matches ? cardView(list) : tableView(list);
   document.getElementById("count").textContent = `${list.length}건 표시 / 전체 ${data.length}건`;
+  buildDatalists();
   document.querySelectorAll("#view input, #view textarea").forEach(i => { i.setAttribute("autocomplete", "off"); i.setAttribute("data-lpignore", "true"); });
   const t = list.map(([b]) => totalsOf(b)).reduce((a, c) => ({
     supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal
@@ -1200,11 +1227,22 @@ document.addEventListener("change", e => {
       if (!b.contractId) b.contractId = "c-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       if (!b.periodStart && !b.periodEnd) { b.periodStart = isISO(b.date) ? b.date : today(); b.periodEnd = addDays(addMonths(b.periodStart, 1), -1); }
     }
-    save(); const made = b.longTerm ? ensureCarryOver() : []; render(); announce(made); return;
+    const ce = b.longTerm ? applyContract(b) : false;
+    save(); const made = b.longTerm ? ensureCarryOver() : []; render(); announce(made);
+    if (ce) toast(`계약기간 ~${md(ce)}: 이번 달은 ${md(b.periodStart)}~${md(b.periodEnd)}로 청구하고, 다음 달부터 매달 자동으로 넘어가요`);
+    return;
   }
   if (f === "phone") { el.value = fmtPhone(el.value); b.phone = el.value; save(); return render(); }
   b[f] = el.value;
-  if (f === "periodStart" || f === "periodEnd") b.period = "";
+  if (f === "periodStart" || f === "periodEnd") {
+    b.period = "";
+    if (b.longTerm && !b.ltEnded) {
+      const ce = applyContract(b);
+      save(); const made = ensureCarryOver(); render(); announce(made);
+      if (ce) toast(`계약기간 ~${md(ce)}: 이번 달은 ${md(b.periodStart)}~${md(b.periodEnd)}로 청구하고, 다음 달부터 매달 자동으로 넘어가요`);
+      return;
+    }
+  }
   save();
   if (f !== "memo" && f !== "site" && f !== "manager") render();
 });
@@ -1325,7 +1363,7 @@ function printView(list) {
         <td rowspan="${span}" class="nw">${per}</td><td rowspan="${span}">${kind}</td>`;
       body += `<td class="l nw">${esc(r.item)}</td><td class="r">${fmt(r.supply) || "0"}</td><td class="r">${fmt(vatOf(r)) || "0"}</td><td class="r">${fmt(lineOf(r)) || "0"}</td>`;
       if (ri === 0) body += `<td rowspan="${span}" class="r">${pays}</td>
-        <td rowspan="${span}" class="r"><span class="muted2">청구 ${won(t.supply + t.vat)}</span><br><b>${won(t.bal)}</b></td>
+        <td rowspan="${span}" class="r"><span class="muted2">청구금액</span><br><b>${won(t.supply + t.vat)}</b><br><span class="muted2">잔액</span><br><b>${won(t.bal)}</b></td>
         <td rowspan="${span}" class="pst nw">${stTxt}</td><td rowspan="${span}" class="pmemo">${esc(b.memo)}</td>`;
       body += "</tr>";
     });
@@ -1497,6 +1535,7 @@ function fixups() {
     if (bills.filter(b => b.ltEnded).length > 1) { bills.forEach(b => b.ltEnded = false); bills[bills.length - 1].ltEnded = true; }
   });
   data.forEach(b => { if (b.needCheck === undefined) b.needCheck = !!(b.longTerm && b.contractId && roundOf(b) > 1); });
+  data.filter(b => b.longTerm && !b.ltEnded && b.contractId && isLatest(b)).forEach(applyContract);
   const lim = maxMonth();
   extraMonths = extraMonths.filter(m => m <= lim);
   const untouched = b => b.longTerm && b.needCheck && monthOf(b) > lim && !b.memo && !(b.payments || []).length;
