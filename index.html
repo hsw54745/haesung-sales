@@ -83,6 +83,8 @@
 
   .mbar { display:none; }
   .home { display:none; }
+  #work[hidden] { display:none; }
+  @media (min-width: 761px) { #work[hidden] { display:block; } #home { display:none !important; } }
   .filters { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; padding:14px 24px;
     background:var(--paper); border-bottom:1px solid var(--line); }
   .filters label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
@@ -482,7 +484,7 @@
   </div>
 </div>
 
-<div id="work">
+<div id="work" hidden>
 <div class="mbar">
   <button id="homeBtn" class="mbar-home">🏠 홈</button>
   <button id="filterToggle" class="mbar-filter">🔍 검색·필터</button>
@@ -533,6 +535,13 @@
 const KEY = "haesung-sales-cloud-v1";   // 이 기기의 임시 보관용(오프라인 대비)
 const DEFAULT_ITEMS = ["발전기", "연료"];
 const mq = window.matchMedia("(max-width: 760px)");
+// 첫 렌더 전에 미리 홈/시트를 정해 깜빡임 방지
+const startHome = mq.matches && !location.search.includes("install");
+(function initScreens() {
+  const w = document.getElementById("work"), h = document.getElementById("home");
+  if (startHome) { h.hidden = false; w.hidden = true; document.body.classList.add("on-home"); }
+  else { h.hidden = true; w.hidden = false; }
+})();
 
 /* ---------- 날짜 도우미 ---------- */
 const pad = n => String(n).padStart(2, "0");
@@ -1816,7 +1825,7 @@ mq.addEventListener("change", render);
   render(); announce(made); setStatus();
   showLock();
   offerInstallFromQR();
-  if (mq.matches && !location.search.includes("install")) showHome(); else showWork();
+  if (startHome) showHome(); else showWork();
 })();
 setInterval(() => { if (document.visibilityState === "visible" && !isEditing()) syncNow("timer"); else setStatus(); }, 30000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncNow("focus"); });
