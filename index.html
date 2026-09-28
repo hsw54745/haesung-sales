@@ -37,6 +37,7 @@
     border:1px solid var(--line); border-radius:6px; margin-bottom:8px; }
   .lockbox button { width:100%; padding:12px; font-size:16px; }
   .lockhint { font-size:13px; }
+  .lg-in { width:100%; font:inherit; font-size:16px; padding:10px 12px; border:1px solid var(--line); border-radius:6px; margin-bottom:8px; }
   .uidlg { position:fixed; inset:0; z-index:60; background:rgba(20,26,36,.45); display:flex; align-items:center; justify-content:center; padding:20px; }
   .uidlg-box { background:var(--paper); border-radius:10px; padding:22px 20px 16px; width:100%; max-width:380px; box-shadow:0 12px 40px rgba(0,0,0,.25); }
   .uidlg-msg { margin:0 0 14px; white-space:pre-line; line-height:1.55; font-size:15px; }
@@ -54,7 +55,16 @@
   .qrbtn:hover { border-color:var(--accent); }
   .qrbig { text-align:center; }
   .qrbig .qrsvg { width:240px; height:240px; margin:6px auto 10px; display:block; }
-  .installbtn { background:#1e7d4f !important; border-color:#1e7d4f !important; color:#fff !important; }
+  /* 상단 버튼마다 색 */
+  .tools button { color:#fff; border-color:transparent; font-weight:600; }
+  .tools button:hover { filter:brightness(1.1); }
+  #addBtn { background:#1f5fa8; }
+  #csvBtn { background:#217346; }       /* 엑셀 초록 */
+  #backupBtn { background:#e0862e; }    /* 주황 */
+  #restoreBtn { background:#1f9aa8; }   /* 청록 */
+  #printBtn { background:#4a5261; }     /* 회색 */
+  #pwBtn { background:#c94040; }        /* 빨강 */
+  .installbtn { background:#5b3fa0 !important; border-color:#5b3fa0 !important; color:#fff !important; }  /* 보라 */
   body.standalone .installbtn, body.standalone .qrbtn { display:none !important; }
   .titlebox { display:flex; flex-direction:column; gap:3px; }
   .savestatus { font-size:12px; color:var(--done); }
@@ -260,10 +270,10 @@
   .rtable tr.y th, .rtable tr.y td { background:var(--line-strong); color:#fff; font-weight:600; font-size:15px; }
   .rtable tr.y td.minus { color:#ffb4aa; }
   .rtable .link { font-size:14px; padding:0; }
-  .catline { flex-basis:100%; display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; margin-top:-4px; }
-  .catlabel { font-size:15px; color:var(--muted); margin-right:4px; }
-  .catchip { white-space:nowrap; display:inline-flex; gap:8px; align-items:baseline; background:var(--head); border-radius:16px; padding:6px 14px; font-size:18px; font-weight:700; }
-  .catchip em { font-style:normal; font-weight:500; color:var(--ink); font-size:15px; }
+  .catline { flex-basis:100%; display:flex; flex-wrap:wrap; gap:5px 6px; align-items:center; margin-top:-4px; }
+  .catlabel { font-size:13px; color:var(--muted); margin-right:2px; }
+  .catchip { white-space:nowrap; display:inline-flex; gap:8px; align-items:baseline; background:var(--head); border-radius:12px; padding:3px 10px; font-size:14px; font-weight:700; }
+  .catchip em { font-style:normal; font-weight:500; color:var(--muted); font-size:12px; }
   .cathead { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:28px 0 10px; }
   .cathead h3 { margin:0; font-size:17px; }
   .cathead select { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:4px; margin-left:4px; }
@@ -331,7 +341,7 @@
     .rtable:not(.ctable) tr > :nth-child(2), .rtable:not(.ctable) tr > :nth-child(3), .rtable:not(.ctable) tr > :nth-child(4) { display:none; }
     .ctable { min-width:620px; }
     .catline { gap:5px; }
-    .catchip { font-size:16px; padding:5px 11px; }
+    .catchip { font-size:13px; padding:3px 9px; }
     .catline { grid-column:1 / -1; }
     .catlabel { flex-basis:100%; }
     .qcards .ytotal { grid-column:1 / -1; }
@@ -517,7 +527,9 @@ const ROOT = "sales_records";
 const SYNC_KEY = KEY + "-sync";
 let cloud = { ready:false, online:navigator.onLine, busy:false, lastOk:null, loaded:false, error:"" };
 let fbReady = false, cachedToken = "", tokenAt = 0;
-try { firebase.initializeApp(FIREBASE_CONFIG); firebase.auth().signInAnonymously().catch(() => {}); fbReady = true; } catch (e) { fbReady = false; }
+// 매출 앱 전용 로그인(이메일 계정). 입출고 앱과 로그인 상태가 섞이지 않게 이름을 따로 둔 앱으로 시작
+let fbApp = null, fbAuth = null;
+try { fbApp = firebase.initializeApp(FIREBASE_CONFIG, "sales"); fbAuth = fbApp.auth(); fbReady = true; } catch (e) { fbReady = false; }
 
 // 서버에 마지막으로 보낸 상태(비교용)
 let sync = { sent:{}, meta:"" };
@@ -530,16 +542,50 @@ const stable = v => Array.isArray(v) ? "[" + v.map(stable).join(",") + "]"
 function waitUser(ms) {
   return new Promise(res => {
     if (!fbReady) return res(null);
-    const u = firebase.auth().currentUser; if (u) return res(u);
+    const ok = u => u && !u.isAnonymous;
+    if (ok(fbAuth.currentUser)) return res(fbAuth.currentUser);
     let done = false;
-    const un = firebase.auth().onAuthStateChanged(x => { if (x && !done) { done = true; un(); res(x); } });
-    setTimeout(() => { if (!done) { done = true; un(); res(firebase.auth().currentUser || null); } }, ms);
+    const un = fbAuth.onAuthStateChanged(x => { if (ok(x) && !done) { done = true; un(); res(x); } });
+    setTimeout(() => { if (!done) { done = true; un(); res(ok(fbAuth.currentUser) ? fbAuth.currentUser : null); } }, ms);
   });
+}
+// 이 기기에서 처음 한 번만 이메일 계정으로 로그인 (이후엔 자동 유지)
+function showLogin() {
+  return new Promise(resolve => {
+    const wrap = document.createElement("div");
+    wrap.className = "lock";
+    wrap.innerHTML = `<form class="lockbox" autocomplete="on">
+      <h2>해성발전기 매출 시트</h2>
+      <p>이 기기에서 처음 한 번만 로그인하면 돼요</p>
+      <input class="lg-in" type="email" name="email" autocomplete="username" placeholder="이메일" required>
+      <input class="lg-in" type="password" name="password" autocomplete="current-password" placeholder="계정 비밀번호" required>
+      <p class="lockmsg"></p>
+      <button class="primary" type="submit">로그인</button>
+    </form>`;
+    document.body.appendChild(wrap);
+    const f = wrap.querySelector("form"), msg = wrap.querySelector(".lockmsg");
+    setTimeout(() => f.email.focus(), 50);
+    f.onsubmit = async e => {
+      e.preventDefault(); msg.textContent = "확인 중…";
+      try {
+        const cred = await fbAuth.signInWithEmailAndPassword(f.email.value.trim(), f.password.value);
+        wrap.remove(); resolve(cred.user);
+      } catch (err) {
+        const c = String(err && err.code || "");
+        msg.textContent = /network/.test(c) ? "인터넷 연결을 확인해주세요" : /too-many/.test(c) ? "너무 많이 시도했어요. 잠시 후 다시 해주세요" : "이메일 또는 비밀번호가 틀렸어요";
+      }
+    };
+  });
+}
+async function ensureLogin() {
+  if (!fbReady) return null;
+  const u = await waitUser(4000);
+  return u || showLogin();
 }
 async function authQ() {
   if (cachedToken && Date.now() - tokenAt < 45 * 60000) return "auth=" + encodeURIComponent(cachedToken);
   const u = await waitUser(15000);
-  if (!u) throw new Error("로그인 실패");
+  if (!u) throw new Error("로그인 필요");
   cachedToken = await u.getIdToken(true); tokenAt = Date.now();
   return "auth=" + encodeURIComponent(cachedToken);
 }
@@ -1679,6 +1725,7 @@ mq.addEventListener("change", render);
 (async function boot() {
   render(); setStatus();
   document.getElementById("view").insertAdjacentHTML("afterbegin", `<p class="muted" id="loadingMsg">클라우드에서 불러오는 중…</p>`);
+  await ensureLogin();
   try { await pullCloud(); } catch (e) { cloud.online = false; cloud.error = String(e.message || e); }
   fixups();
   const made = ensureCarryOver();
