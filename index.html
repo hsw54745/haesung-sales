@@ -128,7 +128,7 @@
   td.mgr input.cell { min-height:28px; height:28px; }
   td.cocell { padding:4px; }
   td.cocell input.cell { min-height:28px; height:28px; }
-  td.cocell input.bizno { font-size:11.5px; color:var(--muted); padding-left:4px; padding-right:4px; letter-spacing:-.2px; }
+  td.cocell input.bizno { color:var(--muted); }
   td.mgr input.phone { font-size:12px; color:var(--muted); }
   .phonerow { display:flex; gap:6px; }
   .callbtn { flex:none; display:flex; align-items:center; padding:0 16px; border-radius:4px; background:var(--done);
@@ -1049,7 +1049,7 @@ function tableView(list) {
           <input class="cell" list="dl-company" data-b="${bi}" data-f="company" value="${esc(b.company)}" placeholder="업체명">
           <input class="cell bizno" list="dl-bizno" data-b="${bi}" data-f="bizno" value="${esc(b.bizno)}" placeholder="사업자번호" aria-label="사업자등록번호">
         </td>
-        <td rowspan="${span}" class="sitecell"><textarea class="cellta" rows="3" data-b="${bi}" data-f="site" placeholder="현장주소">${esc(b.site)}</textarea></td>
+        <td rowspan="${span}" class="sitecell"><textarea class="cellta" rows="3" data-b="${bi}" data-f="site" placeholder="주소">${esc(b.site)}</textarea></td>
         <td rowspan="${span}" class="mgr">
           <input class="cell" list="dl-manager" data-b="${bi}" data-f="manager" value="${esc(b.manager)}" placeholder="담당자" aria-label="담당자">
           <input class="cell phone" type="tel" inputmode="tel" data-b="${bi}" data-f="phone" value="${esc(b.phone)}" placeholder="연락처" aria-label="담당자 연락처">
@@ -1087,11 +1087,11 @@ function tableView(list) {
   if (!list.length) body = `<tbody><tr><td colspan="14" class="empty">${emptyText()}</td></tr></tbody>`;
   return `<table>
     <thead><tr>
-      <th style="width:130px">날짜</th><th style="width:150px">업체명</th><th style="width:190px">현장주소</th>
+      <th style="width:130px">날짜</th><th style="width:168px">업체명</th><th style="width:175px">주소</th>
       <th style="width:130px; white-space:nowrap">담당자 / 연락처</th><th style="width:150px">임대기간</th><th style="width:92px">임대구분</th><th style="width:200px">공급내역</th>
       <th style="width:110px">공급가액</th><th style="width:100px">부가세</th><th style="width:110px">합계</th>
-      <th style="width:250px">입금 내역 <small>(날짜 · 금액)</small></th><th style="width:150px">청구금액 / 잔액</th><th style="width:170px">상태</th>
-      <th style="width:200px">비고</th>
+      <th style="width:230px">입금 내역 <small>(날짜 · 금액)</small></th><th style="width:150px">청구금액 / 잔액</th><th style="width:170px">상태</th>
+      <th style="width:175px">비고</th>
     </tr></thead>
     ${body}
     <tfoot><tr>
@@ -1147,7 +1147,7 @@ function cardView(list) {
             ${b.phone ? `<a class="callbtn" href="tel:${esc(b.phone.replace(/[^\d+]/g, ""))}">전화</a>` : ""}
           </div>
         </label>
-        <label class="full">현장주소<input class="f" data-b="${bi}" data-f="site" value="${esc(b.site)}"></label>
+        <label class="full">주소<input class="f" data-b="${bi}" data-f="site" value="${esc(b.site)}"></label>
         <label class="full">임대기간 <span class="days" style="display:inline">${periodText(b)}</span>
           <div class="range">
             <input class="f" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="periodStart" value="${esc(b.periodStart)}" aria-label="시작일">
@@ -1621,7 +1621,7 @@ function printView(list) {
   if (!list.length) body = `<tbody><tr><td colspan="14">거래가 없습니다</td></tr></tbody>`;
   const t = list.map(([b]) => totalsOf(b)).reduce((a, c) => ({ supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal }), { supply:0, vat:0, paid:0, bal:0 });
   return printHead(list) + `<table class="ptable">
-    <thead><tr><th>날짜</th><th>업체명</th><th>현장주소</th><th>담당자</th><th>임대기간</th><th>구분</th><th>공급내역</th>
+    <thead><tr><th>날짜</th><th>업체명</th><th>주소</th><th>담당자</th><th>임대기간</th><th>구분</th><th>공급내역</th>
       <th>공급가액</th><th>부가세</th><th>합계</th><th>입금 내역</th><th>잔액</th><th>상태</th><th>비고</th></tr></thead>
     ${body}
     <tfoot><tr><td colspan="7">합계</td><td class="r">${fmt(t.supply) || 0}</td><td class="r">${fmt(t.vat) || 0}</td>
@@ -1814,7 +1814,7 @@ document.getElementById("csvBtn").onclick = () => {
     a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" }));
     a.download = `매출합계_${reportYear}.csv`; a.click(); return;
   }
-  const lines = [["날짜","업체명","사업자번호","현장주소","담당자","연락처","임대기간","임대구분","공급내역","공급가액","부가세","합계","입금내역","입금합계","잔액","상태","계산서","비고"]];
+  const lines = [["날짜","업체명","사업자번호","주소","담당자","연락처","임대기간","임대구분","공급내역","공급가액","부가세","합계","입금내역","입금합계","잔액","상태","계산서","비고"]];
   data.filter(visible).forEach(b => {
     const per = b.periodStart || b.periodEnd ? `${b.periodStart}~${b.periodEnd}` : (b.period || "");
     const kind = b.longTerm ? `장기 ${roundOf(b)}개월차${b.ltEnded ? " (종료)" : ""}` : "단기";
