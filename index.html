@@ -148,6 +148,8 @@
   select.paysel.pt-cash { color:#1e7d4f; font-weight:600; }
   select.paysel.pt-card { color:#5b3fa0; font-weight:600; }
   .vat-cash { color:var(--muted); }
+  .invchk.na { display:inline-block; width:max-content; margin:6px auto 0; padding:3px 8px; border:1px dashed var(--line);
+    border-radius:4px; background:transparent; font-size:12px; color:var(--muted); cursor:default; }
   .resetallbtn { background:#8a3b3b !important; border-color:#8a3b3b !important; color:#fff !important; }
   td.mgr input.phone { font-size:12px; color:var(--muted); }
   .phonerow { display:flex; gap:6px; }
@@ -525,6 +527,9 @@
   <label>임대 구분
     <select id="fKind"><option value="">전체</option><option value="short">단기</option><option value="long">장기</option></select>
   </label>
+  <label>계산서
+    <select id="fInv"><option value="">전체</option><option value="unissued">미발행만</option><option value="issued">발행함</option><option value="na">해당없음(현금·카드)</option></select>
+  </label>
   <label>검색<input id="fSearch" type="search" placeholder="업체·현장·품목·메모…" autocomplete="off"></label>
   <button id="resetFilter">필터 초기화</button>
   <span class="count" id="count"></span>
@@ -780,7 +785,7 @@ function save() {
   setStatus();
 }
 
-const filter = { company:"", status:"", kind:"", q:"" };
+const filter = { company:"", status:"", kind:"", inv:"", q:"" };
 const KEY_M = KEY + "-months";
 const monthOf = b => isISO(b.date) ? b.date.slice(0, 7) : (b.draftMonth || "");
 const thisMonth = () => today().slice(0, 7);
@@ -881,9 +886,9 @@ function makeNext(b) {
   let e = addDays(addMonths(s, 1), -1), last = false;
   if (b.contractEnd && isISO(b.contractEnd) && addMonths(s, 1) >= b.contractEnd) { e = b.contractEnd; last = true; }  // 마지막 달은 계약 종료일까지
   return {
-    id:`${b.contractId}_${s.replace(/-/g, "")}`, date:s, company:b.company, site:b.site, manager:b.manager, phone:b.phone || "", period:"",
+    id:`${b.contractId}_${s.replace(/-/g, "")}`, date:s, company:b.company, bizno:b.bizno || "", site:b.site, manager:b.manager, phone:b.phone || "", period:"",
     periodStart:s, periodEnd:e, memo:"", contractEnd:b.contractEnd || "",
-    longTerm:true, contractId:b.contractId, ltEnded:last, needCheck:true, invoiced:false,
+    longTerm:true, contractId:b.contractId, ltEnded:last, needCheck:true, invoiced:false, payType:b.payType || "normal",
     rows:b.rows.map(r => ({ item:r.item, supply:r.supply || 0, vat:r.vat ?? null })), payments:[]
   };
 }
@@ -913,6 +918,8 @@ function toast(msg) {
 }
 // 계산서 발행 확인 (표시용 체크, 계산에는 영향 없음)
 function invChk(b, bi) {
+  if (b.payType === "cash" || b.payType === "card")
+    return `<span class="invchk na">계산서 없음 (${b.payType === "cash" ? "현금" : "카드"})</span>`;
   return `<label class="invchk ${b.invoiced ? "on" : ""}"><input type="checkbox" data-b="${bi}" data-f="invoiced" ${b.invoiced ? "checked" : ""}>${b.invoiced ? "계산서 발행함" : "계산서 발행"}</label>`;
 }
 function amtCheck(b, bi) {
@@ -973,6 +980,12 @@ function visible(b) {
   if (filter.status === "partial" && !isPartial(b)) return false;
   if (filter.kind === "long" && !b.longTerm) return false;
   if (filter.kind === "short" && b.longTerm) return false;
+  if (filter.inv) {
+    const na = b.payType === "cash" || b.payType === "card";
+    if (filter.inv === "na" && !na) return false;
+    if (filter.inv === "issued" && (na || !b.invoiced)) return false;
+    if (filter.inv === "unissued" && (na || b.invoiced)) return false;
+  }
   if (filter.q) {
     const hay = [b.company, b.site, b.manager, b.phone, b.memo, b.date, b.periodStart, b.periodEnd,
       ...(b.rows || []).map(r => r.item)].join(" ").toLowerCase();
@@ -1012,6 +1025,7 @@ function buildFilterOptions() {
     companies.map(c => `<option value="${esc(c)}" ${c === filter.company ? "selected" : ""}>${esc(c)}</option>`).join("");
   document.getElementById("fStatus").value = filter.status;
   document.getElementById("fKind").value = filter.kind;
+  const fi = document.getElementById("fInv"); if (fi) fi.value = filter.inv;
 }
 
 /* ---------- 공통 조각 ---------- */
@@ -1442,6 +1456,7 @@ document.addEventListener("change", e => {
   if (el.id === "fCompany") { filter.company = el.value; if (el.value && curTab !== "report" && !monthPinned) curTab = "all"; return render(); }
   if (el.id === "fStatus") { filter.status = el.value; if (el.value && curTab !== "report" && !monthPinned) curTab = "all"; return render(); }
   if (el.id === "fKind") { filter.kind = el.value; if (el.value && curTab !== "report" && !monthPinned) curTab = "all"; return render(); }
+  if (el.id === "fInv") { filter.inv = el.value; if (el.value && curTab !== "report" && !monthPinned) curTab = "all"; return render(); }
   if (el.id === "fSearch") { filter.q = el.value.trim().toLowerCase(); if (filter.q && curTab !== "report") curTab = "all"; return render(); }
   if (!el.dataset || el.dataset.b === undefined) return;
   const b = data[+el.dataset.b], f = el.dataset.f;
@@ -1483,7 +1498,7 @@ document.addEventListener("change", e => {
   if (f === "phone") { el.value = fmtPhone(el.value); b.phone = el.value; save(); return render(); }
   if (f === "bizno") { el.value = fmtBiz(el.value); b.bizno = el.value; save(); return render(); }
   if (f === "company") { b.company = el.value; if (!b.bizno) { const bz = biznoFor(el.value); if (bz) b.bizno = bz; } save(); return render(); }
-  if (f === "payType") { b.payType = el.value; if (el.value === "cash") b.rows.forEach(r => r.vat = 0); save(); return render(); }
+  if (f === "payType") { b.payType = el.value; if (el.value === "cash") b.rows.forEach(r => r.vat = 0); if (el.value !== "normal") b.invoiced = false; save(); return render(); }
   b[f] = el.value;
   if (f === "periodStart" || f === "periodEnd") {
     b.period = "";
@@ -1561,7 +1576,7 @@ document.addEventListener("click", async e => {
   }
 });
 
-document.getElementById("resetFilter").onclick = () => { filter.company = filter.status = filter.kind = filter.q = ""; const sb = document.getElementById("fSearch"); if (sb) sb.value = ""; monthPinned = false; if (curTab !== "report") curTab = thisMonth(); render(); };
+document.getElementById("resetFilter").onclick = () => { filter.company = filter.status = filter.kind = filter.inv = filter.q = ""; const sb = document.getElementById("fSearch"); if (sb) sb.value = ""; monthPinned = false; if (curTab !== "report") curTab = thisMonth(); render(); };
 // ---------- 홈 화면 ----------
 function updateHome() {
   document.getElementById("homeMonth").textContent = `${thisMonth().slice(0,4)}년 ${+thisMonth().slice(5)}월`;
@@ -1580,7 +1595,7 @@ document.getElementById("home").addEventListener("click", e => {
   const a = btn.dataset.home;
   showWork();
   if (a === "add") { document.getElementById("addBtn").click(); return; }
-  filter.company = filter.status = filter.kind = filter.q = ""; monthPinned = false;
+  filter.company = filter.status = filter.kind = filter.inv = filter.q = ""; monthPinned = false;
   const sb = document.getElementById("fSearch"); if (sb) sb.value = "";
   if (a === "sheet") curTab = thisMonth();
   else if (a === "unpaid") { curTab = "all"; filter.status = "open"; }
@@ -1599,8 +1614,8 @@ document.getElementById("addBtn").onclick = () => {
   const dm = (curTab === "all" || curTab === "report") ? thisMonth() : curTab;
   const nid = newId();
   data.push({ id:nid, date:"", draftMonth:dm, company:"", site:"", manager:"", phone:"", period:"", periodStart:"", periodEnd:"", memo:"",
-    longTerm:false, contractId:"", ltEnded:false, payments:[], rows:DEFAULT_ITEMS.map(newRow) });
-  filter.company = filter.status = filter.kind = filter.q = "";
+    longTerm:false, contractId:"", ltEnded:false, payType:"normal", payments:[], rows:DEFAULT_ITEMS.map(newRow) });
+  filter.company = filter.status = filter.kind = filter.inv = filter.q = "";
   save(); render();
   const bi = data.findIndex(b => b.id === nid);
   const inp = document.querySelector(`input[data-b="${bi}"][data-f="date"]`);
@@ -1647,7 +1662,7 @@ function printView(list) {
       body += `<td class="l nw">${esc(r.item)}</td><td class="r">${fmt(r.supply) || "0"}</td><td class="r">${fmt(vatOf(r, b)) || "0"}</td><td class="r">${fmt(lineOf(r, b)) || "0"}</td>`;
       if (ri === 0) body += `<td rowspan="${span}" class="r">${pays}</td>
         <td rowspan="${span}" class="r"><span class="muted2">청구금액</span><br><b>${won(t.supply + t.vat)}</b><br><span class="muted2">잔액</span><br><b>${won(t.bal)}</b></td>
-        <td rowspan="${span}" class="pst nw">${stTxt}<br><span class="muted2">${b.invoiced ? "계산서 ✓" : "계산서 미발행"}</span></td><td rowspan="${span}" class="pmemo">${esc(b.memo)}</td>`;
+        <td rowspan="${span}" class="pst nw">${stTxt}<br><span class="muted2">${(b.payType === "cash" || b.payType === "card") ? "계산서 없음" : (b.invoiced ? "계산서 ✓" : "계산서 미발행")}</span></td><td rowspan="${span}" class="pmemo">${esc(b.memo)}</td>`;
       body += "</tr>";
     });
     body += "</tbody>";
@@ -1788,7 +1803,7 @@ document.getElementById("resetAllBtn").onclick = async () => {
   if (ans === null) return;
   if (String(ans).trim() !== "삭제") { uiAlert("‘삭제’를 정확히 입력하지 않아 취소했어요."); return; }
   data = []; extraMonths = []; curTab = thisMonth(); monthPinned = false;
-  filter.company = filter.status = filter.kind = filter.q = "";
+  filter.company = filter.status = filter.kind = filter.inv = filter.q = "";
   save(); render();
   toast("시트를 초기화했어요. 모든 거래가 삭제되었습니다");
 };
@@ -1821,7 +1836,7 @@ const HELP_HTML = `<div class="uidlg-box helpbox" role="dialog" aria-modal="true
       <li>잔액 = <b>청구액(공급가액+부가세) − 입금 합계</b>.</li>
       <li>나눠서 받으면 <b>+ 입금 추가</b>로 받을 때마다 한 줄씩 기록하세요 (남은 잔액이 자동으로 채워져요).</li>
       <li>상태 색: <b>빨강</b>=미완료, <b>주황</b>=일부입금, <b>파랑</b>=입금완료, <b>흰색</b>=작성중.</li>
-      <li>세금계산서를 발행했으면 <b>계산서 발행</b>에 체크해 두세요 (표시용).</li>
+      <li><b>일반</b> 매출만 <b>계산서 발행</b> 체크가 나와요. 발행했으면 체크해 두세요(표시용). <b>현금·카드</b>는 계산서를 발행하지 않으므로 ‘계산서 없음’으로 표시돼요.</li>
     </ul>
   </section>
 
@@ -1942,7 +1957,7 @@ document.getElementById("csvBtn").onclick = () => {
     const t = totalsOf(b), pays = b.payments.map(x => `${x.date} ${x.amount}`).join(" / ");
     const ptn = b.payType === "cash" ? "현금" : b.payType === "card" ? "카드" : "일반";
     b.rows.forEach((r, i) => lines.push([b.date, i === 0 ? ptn : "", b.company, b.bizno || "", b.site, b.manager, b.phone || "", per, kind, r.item, r.supply || 0,
-      vatOf(r, b), lineOf(r, b), i === 0 ? pays : "", i === 0 ? t.paid : "", i === 0 ? t.bal : "", i === 0 ? st : "", i === 0 ? (b.invoiced ? "발행" : "미발행") : "", i === 0 ? b.memo : ""]));
+      vatOf(r, b), lineOf(r, b), i === 0 ? pays : "", i === 0 ? t.paid : "", i === 0 ? t.bal : "", i === 0 ? st : "", i === 0 ? ((b.payType === "cash" || b.payType === "card") ? "해당없음" : (b.invoiced ? "발행" : "미발행")) : "", i === 0 ? b.memo : ""]));
   });
   const csv = "\uFEFF" + lines.map(l => l.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
   const a = document.createElement("a");
