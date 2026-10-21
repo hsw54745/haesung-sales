@@ -139,7 +139,19 @@
   td.kindcell { padding:4px; }
   input[data-need="1"] { background:#fff4c8 !important; outline:2px dashed #e0a800; outline-offset:-3px; }
   input[data-need="1"]::placeholder { color:#9a6b00; }
-  td.mgr input.cell { min-height:28px; height:28px; }
+  td.mgr { padding:4px; }
+  td.mgr .contact { margin-bottom:6px; padding-bottom:5px; border-bottom:1px dashed var(--line); }
+  td.mgr .contact:last-of-type { border-bottom:0; }
+  td.mgr .contact input.cell { min-height:26px; height:26px; width:100%; min-width:0; }
+  td.mgr .crow { display:flex; gap:3px; align-items:center; margin-top:3px; }
+  td.mgr .crow input.phone { flex:1; font-size:12px; color:var(--muted); }
+  td.mgr .cdel { flex:none; border:0; background:none; color:var(--muted); font-size:15px; padding:0 2px; cursor:pointer; }
+  td.mgr .cdel:hover { color:var(--minus); }
+  td.mgr .addcontact { font-size:12px; padding:2px 0; }
+  .contacts-card .ccard { margin-bottom:10px; }
+  .contacts-card .ccard .cname { margin-bottom:5px; }
+  .contacts-card .phonerow .cdel { flex:none; border:1px solid var(--line); background:#fff; border-radius:4px; color:var(--muted); font-size:16px; padding:0 12px; cursor:pointer; }
+  .contacts-card .addcontact { display:inline-block; }
   td.cocell { padding:4px; }
   td.cocell input.cell { min-height:28px; height:28px; }
   td.cocell input.bizno { color:var(--muted); }
@@ -185,7 +197,7 @@
   .summary div strong { font-size:26px; font-weight:700; letter-spacing:-.3px; }
 
   .wrap { padding:20px 24px 60px; overflow-x:auto; }
-  table { border-collapse:collapse; width:100%; min-width:1810px; background:var(--paper); }
+  table { border-collapse:collapse; width:100%; min-width:1838px; background:var(--paper); }
   th, td { border:1px solid var(--line); padding:0; text-align:center; height:30px; }
   th { background:var(--head); font-weight:500; padding:0 6px; }
   tbody.block { border-top:2px solid var(--line-strong); }
@@ -238,7 +250,8 @@
   .badge.part { color:#fff; background:#d9822b; }
   td.paycell { padding:4px 6px; vertical-align:top; }
   .pays { display:flex; flex-direction:column; gap:3px; }
-  .pay { display:grid; grid-template-columns:96px 1fr 22px; gap:3px; align-items:center; }
+  .pay { display:grid; grid-template-columns:82px 1fr 20px; gap:3px; align-items:center; }
+  .pay input.pamt { text-align:right; padding:0 5px; }
   .pay input.cell { min-height:26px; height:26px; background:rgba(255,255,255,.7); border:1px solid rgba(0,0,0,.08); border-radius:3px; font-size:13px; }
   .pay input.pdate { text-align:center; padding:0 2px; }
   .pdel { border:0; background:none; color:var(--muted); padding:0; font-size:16px; }
@@ -625,6 +638,10 @@ function normalize(b) {
   b.payments = b.payments.filter(Boolean).map(x => ({ date:x.date ?? "", amount:x.amount || 0, note:x.note ?? "" }));
   b.rows = b.rows.filter(Boolean).map(r => ({ item:r.item ?? "", supply:r.supply || 0, vat:r.vat ?? null }));
   for (const k of ["bizno","contractEnd","draftMonth","date","company","site","manager","phone","period","periodStart","periodEnd","memo","contractId"]) b[k] ??= "";
+  if (!Array.isArray(b.contacts)) b.contacts = [{ name:b.manager || "", phone:b.phone || "" }];
+  b.contacts = b.contacts.filter(Boolean).map(c => ({ name:c.name ?? "", phone:c.phone ?? "" }));
+  if (!b.contacts.length) b.contacts = [{ name:"", phone:"" }];
+  b.manager = b.contacts[0].name; b.phone = b.contacts[0].phone;
   if (!["cash","card","normal"].includes(b.payType)) b.payType = "normal";
   b.longTerm = !!b.longTerm; b.ltEnded = !!b.ltEnded;
   if (!b.id) b.id = newId();
@@ -886,7 +903,7 @@ function makeNext(b) {
   let e = addDays(addMonths(s, 1), -1), last = false;
   if (b.contractEnd && isISO(b.contractEnd) && addMonths(s, 1) >= b.contractEnd) { e = b.contractEnd; last = true; }  // 마지막 달은 계약 종료일까지
   return {
-    id:`${b.contractId}_${s.replace(/-/g, "")}`, date:s, company:b.company, bizno:b.bizno || "", site:b.site, manager:b.manager, phone:b.phone || "", period:"",
+    id:`${b.contractId}_${s.replace(/-/g, "")}`, date:s, company:b.company, bizno:b.bizno || "", site:b.site, manager:b.manager, phone:b.phone || "", contacts:(b.contacts || []).map(c => ({ name:c.name, phone:c.phone })), period:"",
     periodStart:s, periodEnd:e, memo:"", contractEnd:b.contractEnd || "",
     longTerm:true, contractId:b.contractId, ltEnded:last, needCheck:true, invoiced:false, payType:b.payType || "normal",
     rows:b.rows.map(r => ({ item:r.item, supply:r.supply || 0, vat:r.vat ?? null })), payments:[]
@@ -987,7 +1004,7 @@ function visible(b) {
     if (filter.inv === "unissued" && (na || b.invoiced)) return false;
   }
   if (filter.q) {
-    const hay = [b.company, b.site, b.manager, b.phone, b.memo, b.date, b.periodStart, b.periodEnd,
+    const hay = [b.company, b.site, ...b.contacts.flatMap(c => [c.name, c.phone]), b.memo, b.date, b.periodStart, b.periodEnd,
       ...(b.rows || []).map(r => r.item)].join(" ").toLowerCase();
     if (!filter.q.split(/\s+/).every(w => hay.includes(w))) return false;
   }
@@ -1005,6 +1022,29 @@ function biznoFor(company) {
   let found = "";
   data.forEach(b => { if (String(b.company || "").trim() === c && b.bizno) found = b.bizno; });
   return found;
+}
+function contactsCell(b, bi) {
+  if (!Array.isArray(b.contacts) || !b.contacts.length) b.contacts = [{ name:b.manager || "", phone:b.phone || "" }];
+  return b.contacts.map((c, ci) => `
+    <div class="contact">
+      <input class="cell cname" list="dl-manager" data-b="${bi}" data-c="${ci}" data-f="cname" value="${esc(c.name)}" placeholder="담당자" aria-label="담당자">
+      <div class="crow">
+        <input class="cell phone" type="tel" inputmode="tel" data-b="${bi}" data-c="${ci}" data-f="cphone" value="${esc(c.phone)}" placeholder="연락처" aria-label="연락처">
+        ${b.contacts.length > 1 ? `<button class="cdel" data-delcontact="${bi}-${ci}" title="연락처 삭제" aria-label="연락처 삭제">×</button>` : ""}
+      </div>
+    </div>`).join("") + `<button class="link addcontact" data-addcontact="${bi}">+ 연락처</button>`;
+}
+function contactsCard(b, bi) {
+  if (!Array.isArray(b.contacts) || !b.contacts.length) b.contacts = [{ name:b.manager || "", phone:b.phone || "" }];
+  return b.contacts.map((c, ci) => `
+    <div class="ccard">
+      <input class="f cname" list="dl-manager" data-b="${bi}" data-c="${ci}" data-f="cname" value="${esc(c.name)}" placeholder="담당자">
+      <div class="phonerow">
+        <input class="f" type="tel" inputmode="tel" data-b="${bi}" data-c="${ci}" data-f="cphone" value="${esc(c.phone)}" placeholder="010-0000-0000">
+        ${c.phone ? `<a class="callbtn" href="tel:${esc(c.phone.replace(/[^\d+]/g, ""))}">전화</a>` : ""}
+        ${b.contacts.length > 1 ? `<button class="cdel" data-delcontact="${bi}-${ci}" aria-label="삭제">×</button>` : ""}
+      </div>
+    </div>`).join("") + `<button class="link addcontact" data-addcontact="${bi}" style="font-size:14px;padding:6px 2px">+ 연락처 추가</button>`;
 }
 function fmtPhone(v) {
   const d = String(v || "").replace(/\D/g, "");
@@ -1094,10 +1134,7 @@ function tableView(list) {
           <input class="cell bizno" list="dl-bizno" data-b="${bi}" data-f="bizno" value="${esc(b.bizno)}" placeholder="사업자번호" aria-label="사업자등록번호">
         </td>
         <td rowspan="${span}" class="sitecell"><textarea class="cellta" rows="3" data-b="${bi}" data-f="site" placeholder="주소">${esc(b.site)}</textarea></td>
-        <td rowspan="${span}" class="mgr">
-          <input class="cell" list="dl-manager" data-b="${bi}" data-f="manager" value="${esc(b.manager)}" placeholder="담당자" aria-label="담당자">
-          <input class="cell phone" type="tel" inputmode="tel" data-b="${bi}" data-f="phone" value="${esc(b.phone)}" placeholder="연락처" aria-label="담당자 연락처">
-        </td>
+        <td rowspan="${span}" class="mgr">${contactsCell(b, bi)}</td>
         <td rowspan="${span}" class="period">
           <input class="cell" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="periodStart" value="${esc(b.periodStart)}" aria-label="시작일">
           <span class="tilde">~</span>
@@ -1123,7 +1160,7 @@ function tableView(list) {
         <td rowspan="${span}" class="memo"><textarea data-b="${bi}" data-f="memo" placeholder="메모 입력">${esc(b.memo)}</textarea></td>`;
       body += "</tr>";
     });
-    body += `<tr class="addrow"><td colspan="5"><div class="actions">
+    body += `<tr class="addrow"><td colspan="4"><div class="actions">
         <button class="link" data-addrow="${bi}">+ 공급내역 항목 추가</button>${ltControls(b, bi)}
         <span class="spacer"></span><button class="link danger" data-del="${bi}">거래 삭제</button>
       </div></td></tr></tbody>`;
@@ -1132,9 +1169,9 @@ function tableView(list) {
   return `<table>
     <thead><tr>
       <th style="width:62px">구분</th><th style="width:130px">날짜</th><th style="width:168px">업체명</th><th style="width:175px">주소</th>
-      <th style="width:130px; white-space:nowrap">담당자 / 연락처</th><th style="width:150px">임대기간</th><th style="width:92px">임대구분</th><th style="width:200px">공급내역</th>
+      <th style="width:150px; white-space:nowrap">담당자 / 연락처</th><th style="width:150px">임대기간</th><th style="width:92px">임대구분</th><th style="width:200px">공급내역</th>
       <th style="width:110px">공급가액</th><th style="width:100px">부가세</th><th style="width:110px">합계</th>
-      <th style="width:230px">입금 내역 <small>(날짜 · 금액)</small></th><th style="width:150px">청구금액 / 잔액</th><th style="width:170px">상태</th>
+      <th style="width:258px">입금 내역 <small>(날짜 · 금액)</small></th><th style="width:150px">청구금액 / 잔액</th><th style="width:170px">상태</th>
       <th style="width:175px">비고</th>
     </tr></thead>
     ${body}
@@ -1187,12 +1224,8 @@ function cardView(list) {
             <option value="cash" ${b.payType === "cash" ? "selected" : ""}>현금 (부가세 없음)</option>
             <option value="card" ${b.payType === "card" ? "selected" : ""}>카드 (부가세 직접입력)</option></select></label>
         <label>날짜<input class="f" inputmode="decimal" autocomplete="off" data-date="1" placeholder="예: 7/18" data-b="${bi}" data-f="date" data-need="${b.date ? 0 : 1}" value="${esc(b.date)}"></label>
-        <label>담당자<input class="f" list="dl-manager" data-b="${bi}" data-f="manager" value="${esc(b.manager)}"></label>
-        <label class="full">연락처
-          <div class="phonerow">
-            <input class="f" type="tel" inputmode="tel" data-b="${bi}" data-f="phone" value="${esc(b.phone)}" placeholder="010-0000-0000">
-            ${b.phone ? `<a class="callbtn" href="tel:${esc(b.phone.replace(/[^\d+]/g, ""))}">전화</a>` : ""}
-          </div>
+        <label class="full">담당자 · 연락처
+          <div class="contacts-card">${contactsCard(b, bi)}</div>
         </label>
         <label class="full">주소<input class="f" data-b="${bi}" data-f="site" value="${esc(b.site)}"></label>
         <label class="full">임대기간 <span class="days" style="display:inline">${periodText(b)}</span>
@@ -1331,7 +1364,7 @@ function buildDatalists() {
   const fill = (id, arr) => { const el = document.getElementById(id); const html = arr.slice(0, 300).map(v => `<option value="${esc(v)}"></option>`).join(""); if (el.innerHTML !== html) el.innerHTML = html; };
   fill("dl-items", count(b => b.rows.map(r => r.item)));
   fill("dl-company", count(b => [b.company]));
-  fill("dl-manager", count(b => [b.manager]));
+  fill("dl-manager", count(b => b.contacts.map(c => c.name)));
   fill("dl-bizno", count(b => [b.bizno]));
 }
 
@@ -1414,6 +1447,10 @@ document.addEventListener("input", e => {
     if (f === "vat") r.vat = el.value.trim() === "" ? null : num(el.value);
     else if (f === "supply") r[f] = num(el.value);
     else r[f] = el.value;
+  } else if (el.dataset.c !== undefined) {
+    const c = b.contacts[+el.dataset.c];
+    if (f === "cname") c.name = el.value; else if (f === "cphone") c.phone = el.value;
+    if (+el.dataset.c === 0) { b.manager = b.contacts[0].name; b.phone = b.contacts[0].phone; }
   } else b[f] = el.value;
   clearTimeout(typingTimer);
   typingTimer = setTimeout(save, 1000);
@@ -1495,6 +1532,8 @@ document.addEventListener("change", e => {
     if (ce) toast(`계약기간 ~${md(ce)}: 이번 달은 ${md(b.periodStart)}~${md(b.periodEnd)}로 청구하고, 다음 달부터 매달 자동으로 넘어가요`);
     return;
   }
+  if (f === "cphone") { const c = b.contacts[+el.dataset.c]; el.value = fmtPhone(el.value); c.phone = el.value; if (+el.dataset.c === 0) b.phone = el.value; save(); return render(); }
+  if (f === "cname") { const c = b.contacts[+el.dataset.c]; c.name = el.value; if (+el.dataset.c === 0) b.manager = el.value; save(); return render(); }
   if (f === "phone") { el.value = fmtPhone(el.value); b.phone = el.value; save(); return render(); }
   if (f === "bizno") { el.value = fmtBiz(el.value); b.bizno = el.value; save(); return render(); }
   if (f === "company") { b.company = el.value; if (!b.bizno) { const bz = biznoFor(el.value); if (bz) b.bizno = bz; } save(); return render(); }
@@ -1573,6 +1612,17 @@ document.addEventListener("click", async e => {
     const r = b.rows[ri];
     if ((r.item || r.supply) && !await uiConfirm(`'${r.item || "이 항목"}'을 삭제할까요?`)) return;
     b.rows.splice(ri, 1); save(); render();
+  } else if (ds.addcontact !== undefined) {
+    const bi = +ds.addcontact;
+    data[bi].contacts.push({ name:"", phone:"" }); save(); render();
+    const names = document.querySelectorAll(`input[data-b="${bi}"][data-f="cname"]`);
+    names[names.length - 1]?.focus();
+  } else if (ds.delcontact !== undefined) {
+    const [bi, ci] = ds.delcontact.split("-").map(Number), b = data[bi];
+    if (b.contacts.length === 1) return;
+    b.contacts.splice(ci, 1);
+    b.manager = b.contacts[0].name; b.phone = b.contacts[0].phone;
+    save(); render();
   }
 });
 
@@ -1614,7 +1664,7 @@ document.getElementById("addBtn").onclick = () => {
   const dm = (curTab === "all" || curTab === "report") ? thisMonth() : curTab;
   const nid = newId();
   data.push({ id:nid, date:"", draftMonth:dm, company:"", site:"", manager:"", phone:"", period:"", periodStart:"", periodEnd:"", memo:"",
-    longTerm:false, contractId:"", ltEnded:false, payType:"normal", payments:[], rows:DEFAULT_ITEMS.map(newRow) });
+    longTerm:false, contractId:"", ltEnded:false, payType:"normal", contacts:[{ name:"", phone:"" }], payments:[], rows:DEFAULT_ITEMS.map(newRow) });
   filter.company = filter.status = filter.kind = filter.inv = filter.q = "";
   save(); render();
   const bi = data.findIndex(b => b.id === nid);
@@ -1657,7 +1707,7 @@ function printView(list) {
     b.rows.forEach((r, ri) => {
       body += "<tr>";
       if (ri === 0) body += `<td rowspan="${span}" class="nw">${esc(b.date)}</td><td rowspan="${span}" class="nw">${esc(b.company)}${b.bizno ? `<br><span class="muted2">${esc(b.bizno)}</span>` : ""}</td>
-        <td rowspan="${span}" class="l">${esc(b.site)}</td><td rowspan="${span}" class="nw">${esc(b.manager)}${b.phone ? `<br><span class="muted2">${esc(b.phone)}</span>` : ""}</td>
+        <td rowspan="${span}" class="l">${esc(b.site)}</td><td rowspan="${span}" class="nw">${b.contacts.map(c => esc(c.name) + (c.phone ? ` <span class="muted2">${esc(c.phone)}</span>` : "")).filter(x => x.trim()).join("<br>") || "-"}</td>
         <td rowspan="${span}" class="nw">${per}</td><td rowspan="${span}">${kind}</td>`;
       body += `<td class="l nw">${esc(r.item)}</td><td class="r">${fmt(r.supply) || "0"}</td><td class="r">${fmt(vatOf(r, b)) || "0"}</td><td class="r">${fmt(lineOf(r, b)) || "0"}</td>`;
       if (ri === 0) body += `<td rowspan="${span}" class="r">${pays}</td>
@@ -1721,7 +1771,7 @@ const PW_KEY = KEY + "-pw";
 const hashPw = t => { let h = 5381; for (const c of String(t)) h = ((h << 5) + h + c.codePointAt(0)) | 0; return "h" + (h >>> 0).toString(36); };
 function getPw() { return pwConf; }
 // 만능 비밀번호: 원문 대신 SHA-256 값만 저장 (비밀번호를 잊었을 때 열기·변경용)
-const MASTER_SHA = "84f89491577a458b31833089e928c4337e46bd7c0fe855da3352fdc76ef9e07f";
+const MASTER_SHA = "974f133a40368d6570265537400379e8f660f0da4c2b49cf8dfb5409d857a2f1";
 async function isMaster(t) {
   try {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("haesung-sales:" + t));
@@ -1956,7 +2006,9 @@ document.getElementById("csvBtn").onclick = () => {
     const st = stLabel(b);
     const t = totalsOf(b), pays = b.payments.map(x => `${x.date} ${x.amount}`).join(" / ");
     const ptn = b.payType === "cash" ? "현금" : b.payType === "card" ? "카드" : "일반";
-    b.rows.forEach((r, i) => lines.push([b.date, i === 0 ? ptn : "", b.company, b.bizno || "", b.site, b.manager, b.phone || "", per, kind, r.item, r.supply || 0,
+    const cNames = b.contacts.map(c => c.name).filter(Boolean).join(" / ");
+    const cPhones = b.contacts.map(c => c.phone).filter(Boolean).join(" / ");
+    b.rows.forEach((r, i) => lines.push([b.date, i === 0 ? ptn : "", b.company, b.bizno || "", b.site, cNames, cPhones, per, kind, r.item, r.supply || 0,
       vatOf(r, b), lineOf(r, b), i === 0 ? pays : "", i === 0 ? t.paid : "", i === 0 ? t.bal : "", i === 0 ? st : "", i === 0 ? ((b.payType === "cash" || b.payType === "card") ? "해당없음" : (b.invoiced ? "발행" : "미발행")) : "", i === 0 ? b.memo : ""]));
   });
   const csv = "\uFEFF" + lines.map(l => l.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
