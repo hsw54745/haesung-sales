@@ -565,7 +565,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
 const KEY = "haesung-sales-cloud-v1";   // 이 기기의 임시 보관용(오프라인 대비)
-const DEFAULT_ITEMS = ["발전기", "연료"];
+const DEFAULT_ITEMS = ["발전기", "연료", "운반비"];
 const mq = window.matchMedia("(max-width: 760px)");
 // 첫 렌더 전에 미리 홈/시트를 정해 깜빡임 방지
 const startHome = mq.matches && !location.search.includes("install");
@@ -1064,7 +1064,7 @@ function payList(b, bi, mobile) {
   return `<div class="pays">
     ${rows || `<div class="muted nopay">입금 기록 없음</div>`}
     <div class="payadd">
-      ${t.bal > 0 ? `<button class="link" data-addpay="${bi}" title="남은 잔액이 금액으로 미리 채워집니다">+ 입금 추가</button>` : ""}
+      <button class="link" data-addpay="${bi}" title="${t.bal > 0 ? "남은 잔액이 금액으로 미리 채워집니다" : "금액을 직접 입력하세요"}">+ 입금 추가</button>
       ${n > 1 ? `<span class="muted">${n}회 입금 · 합계 ${won(t.paid)}</span>` : ""}
     </div>
   </div>`;
