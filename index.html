@@ -139,6 +139,7 @@
   td.kindcell { padding:4px; }
   input[data-need="1"] { background:#fff4c8 !important; outline:2px dashed #e0a800; outline-offset:-3px; }
   input[data-need="1"]::placeholder { color:#9a6b00; }
+  td.qtycell input.cell { text-align:center; }
   td.mgr { padding:4px; }
   td.mgr .contact { margin-bottom:6px; padding-bottom:5px; border-bottom:1px dashed var(--line); }
   td.mgr .contact:last-of-type { border-bottom:0; }
@@ -197,7 +198,7 @@
   .summary div strong { font-size:26px; font-weight:700; letter-spacing:-.3px; }
 
   .wrap { padding:20px 24px 60px; overflow-x:auto; }
-  table { border-collapse:collapse; width:100%; min-width:1838px; background:var(--paper); }
+  table { border-collapse:collapse; width:100%; min-width:1900px; background:var(--paper); }
   th, td { border:1px solid var(--line); padding:0; text-align:center; height:30px; }
   th { background:var(--head); font-weight:500; padding:0 6px; }
   tbody.block { border-top:2px solid var(--line-strong); }
@@ -622,7 +623,7 @@ function normDate(raw) {
 const md = s => s ? `${+s.slice(5, 7)}/${+s.slice(8)}` : "";
 
 /* ---------- 데이터 ---------- */
-const newRow = item => ({ item, supply:0, vat:null });
+const newRow = item => ({ item, qty:"", supply:0, vat:null });
 
 
 let data;
@@ -636,7 +637,7 @@ function normalize(b) {
     b.rows.filter(Boolean).forEach(r => { if (r.paid) b.payments.push({ date:r.payDate || "", amount:r.paid, note:"" }); });
   }
   b.payments = b.payments.filter(Boolean).map(x => ({ date:x.date ?? "", amount:x.amount || 0, note:x.note ?? "" }));
-  b.rows = b.rows.filter(Boolean).map(r => ({ item:r.item ?? "", supply:r.supply || 0, vat:r.vat ?? null }));
+  b.rows = b.rows.filter(Boolean).map(r => ({ item:r.item ?? "", qty:(+r.qty > 1 ? +r.qty : ""), supply:r.supply || 0, vat:r.vat ?? null }));
   for (const k of ["bizno","contractEnd","draftMonth","date","company","site","manager","phone","period","periodStart","periodEnd","memo","contractId"]) b[k] ??= "";
   if (!Array.isArray(b.contacts)) b.contacts = [{ name:b.manager || "", phone:b.phone || "" }];
   b.contacts = b.contacts.filter(Boolean).map(c => ({ name:c.name ?? "", phone:c.phone ?? "" }));
@@ -836,7 +837,7 @@ function catNamesFor(bills) {
 }
 function catTotals(bills, basis = catBasis, names = catNamesFor(bills)) {
   const t = Object.fromEntries(names.map(n => [n, 0]));
-  bills.forEach(b => b.rows.forEach(r => { if (!usedRow(r)) return; const c = catOf(r.item); if (c in t) t[c] += basis === "total" ? lineOf(r, b) : (r.supply || 0); }));
+  bills.forEach(b => b.rows.forEach(r => { if (!usedRow(r)) return; const c = catOf(r.item); if (c in t) t[c] += basis === "total" ? lineOf(r, b) : supplyOf(r); }));
   return t;
 }
 const monthLabel = m => m.slice(0, 4) === thisMonth().slice(0, 4) ? `${+m.slice(5)}월` : `${m.slice(2, 4)}년 ${+m.slice(5)}월`;
@@ -849,16 +850,17 @@ const num = v => Number(String(v).replace(/[^\d.-]/g, "")) || 0;
 const fmt = n => n ? Number(n).toLocaleString("ko-KR") : "";
 const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;");
 // 부가세: 현금=항상 0 / 카드=직접 입력값(없으면 0) / 일반=비우면 공급가액 10% 자동, 입력하면 그 값
+const supplyOf = r => (r.supply || 0) * (+r.qty > 0 ? +r.qty : 1);   // 공급가액 = 단가 × 수량
 function vatOf(r, b) {
   const pt = b && b.payType || "normal";
   if (pt === "cash") return 0;
   if (pt === "card") return (r.vat === null || r.vat === undefined) ? 0 : r.vat;
-  return (r.vat === null || r.vat === undefined) ? Math.round((r.supply || 0) * 0.1) : r.vat;
+  return (r.vat === null || r.vat === undefined) ? Math.round(supplyOf(r) * 0.1) : r.vat;
 }
-const lineOf = (r, b) => (r.supply || 0) + vatOf(r, b);          // 항목별 청구액
+const lineOf = (r, b) => supplyOf(r) + vatOf(r, b);              // 항목별 청구액
 const paidOf = b => (b.payments || []).reduce((s, x) => s + (x.amount || 0), 0);
 function totalsOf(b) {
-  const supply = b.rows.reduce((s, r) => s + (r.supply || 0), 0), vat = b.rows.reduce((s, r) => s + vatOf(r, b), 0);
+  const supply = b.rows.reduce((s, r) => s + supplyOf(r), 0), vat = b.rows.reduce((s, r) => s + vatOf(r, b), 0);
   const paid = paidOf(b);
   return { supply, vat, paid, bal:supply + vat - paid };
 }
@@ -906,7 +908,7 @@ function makeNext(b) {
     id:`${b.contractId}_${s.replace(/-/g, "")}`, date:s, company:b.company, bizno:b.bizno || "", site:b.site, manager:b.manager, phone:b.phone || "", contacts:(b.contacts || []).map(c => ({ name:c.name, phone:c.phone })), period:"",
     periodStart:s, periodEnd:e, memo:"", contractEnd:b.contractEnd || "",
     longTerm:true, contractId:b.contractId, ltEnded:last, needCheck:true, invoiced:false, payType:b.payType || "normal",
-    rows:b.rows.map(r => ({ item:r.item, supply:r.supply || 0, vat:r.vat ?? null })), payments:[]
+    rows:b.rows.map(r => ({ item:r.item, qty:(+r.qty > 1 ? +r.qty : ""), supply:r.supply || 0, vat:r.vat ?? null })), payments:[]
   };
 }
 const maxMonth = () => nextMonthKey(thisMonth());   // 만들 수 있는 가장 먼 달 = 다음 달
@@ -1120,7 +1122,7 @@ function tableView(list) {
     if (g !== grp) {
       grp = g;
       const n = list.filter(([x]) => !!x.longTerm === (g === "long")).length;
-      body += `<tbody class="group ${g}"><tr><td colspan="15">${g === "long" ? "장기임대" : "단기임대"} ${n}건</td></tr></tbody>`;
+      body += `<tbody class="group ${g}"><tr><td colspan="16">${g === "long" ? "장기임대" : "단기임대"} ${n}건</td></tr></tbody>`;
     }
     body += `<tbody class="block ${stClass(b)}">`;
     b.rows.forEach((r, ri) => {
@@ -1146,6 +1148,7 @@ function tableView(list) {
       body += `
         <td><div class="itemcell"><span class="autow" data-v="${esc(r.item)}"><input class="cell" size="1" list="dl-items" data-b="${bi}" data-r="${ri}" data-f="item" value="${esc(r.item)}" placeholder="항목명"></span>
           <button title="항목 삭제" aria-label="항목 삭제" data-delrow="${bi}-${ri}">×</button></div></td>
+        <td class="qtycell"><input class="cell num" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="qty" value="${+r.qty > 1 ? +r.qty : ""}" placeholder="1"></td>
         <td><input class="cell num" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="supply" value="${fmt(r.supply)}"></td>
         <td>${b.payType === "cash" ? `<span class="vat-cash">—</span>` : `<input class="cell num vat-auto" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="vat" value="${autoVat && b.payType !== "card" ? "" : (r.vat === 0 ? "0" : fmt(r.vat))}" placeholder="${b.payType === "card" ? "직접 입력" : (fmt(vatOf(r, b)) || "0")}">`}</td>
         <td class="auto">${won(lineOf(r, b))}</td>`;
@@ -1160,23 +1163,23 @@ function tableView(list) {
         <td rowspan="${span}" class="memo"><textarea data-b="${bi}" data-f="memo" placeholder="메모 입력">${esc(b.memo)}</textarea></td>`;
       body += "</tr>";
     });
-    body += `<tr class="addrow"><td colspan="4"><div class="actions">
+    body += `<tr class="addrow"><td colspan="5"><div class="actions">
         <button class="link" data-addrow="${bi}">+ 공급내역 항목 추가</button>${ltControls(b, bi)}
         <span class="spacer"></span><button class="link danger" data-del="${bi}">거래 삭제</button>
       </div></td></tr></tbody>`;
   });
-  if (!list.length) body = `<tbody><tr><td colspan="15" class="empty">${emptyText()}</td></tr></tbody>`;
+  if (!list.length) body = `<tbody><tr><td colspan="16" class="empty">${emptyText()}</td></tr></tbody>`;
   return `<table>
     <thead><tr>
       <th style="width:62px">구분</th><th style="width:130px">날짜</th><th style="width:168px">업체명</th><th style="width:175px">주소</th>
       <th style="width:150px; white-space:nowrap">담당자 / 연락처</th><th style="width:150px">임대기간</th><th style="width:92px">임대구분</th><th style="width:200px">공급내역</th>
-      <th style="width:110px">공급가액</th><th style="width:100px">부가세</th><th style="width:110px">합계</th>
+      <th style="width:56px">수량</th><th style="width:110px">공급가액</th><th style="width:100px">부가세</th><th style="width:110px">합계</th>
       <th style="width:258px">입금 내역 <small>(날짜 · 금액)</small></th><th style="width:150px">청구금액 / 잔액</th><th style="width:170px">상태</th>
       <th style="width:175px">비고</th>
     </tr></thead>
     ${body}
     <tfoot><tr>
-      <td colspan="8" style="text-align:center">합계 (필터 적용)</td>
+      <td colspan="9" style="text-align:center">합계 (필터 적용)</td>
       <td id="tSupply"></td><td id="tVat"></td><td id="tBill"></td><td id="tPaid"></td><td id="tBal"></td><td colspan="2"></td>
     </tr></tfoot>
   </table>
@@ -1204,6 +1207,7 @@ function cardView(list) {
           <button aria-label="항목 삭제" data-delrow="${bi}-${ri}">×</button>
         </div>
         <div class="grid2">
+          <label>수량<input class="f num" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="qty" value="${+r.qty > 1 ? +r.qty : ""}" placeholder="1"></label>
           <label>공급가액<input class="f num" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="supply" value="${fmt(r.supply)}" placeholder="0"></label>
           <label>부가세${b.payType === "cash" ? `<input class="f" value="— (현금, 부가세 없음)" disabled>` : `<input class="f num vat-auto" inputmode="numeric" data-b="${bi}" data-r="${ri}" data-f="vat" value="${autoVat && b.payType !== "card" ? "" : (r.vat === 0 ? "0" : fmt(r.vat))}" placeholder="${b.payType === "card" ? "직접 입력" : (fmt(vatOf(r, b)) || "0") + " (자동)"}">`}</label>
         </div>
@@ -1404,7 +1408,14 @@ function render() {
     : mq.matches ? cardView(list) : tableView(list);
   document.getElementById("count").textContent = `${list.length}건 표시 / 전체 ${data.length}건`;
   buildDatalists();
-  document.querySelectorAll("#view input, #view textarea").forEach(i => { i.setAttribute("autocomplete", "off"); i.setAttribute("data-lpignore", "true"); });
+  document.querySelectorAll("#view input, #view textarea").forEach(i => {
+    i.setAttribute("autocomplete", "off"); i.setAttribute("data-lpignore", "true");
+    const im = i.getAttribute("inputmode") || "", tp = i.type || "";
+    // 글자 입력칸(업체명·주소·담당자·공급내역·메모 등)은 한글 우선, 숫자/전화/날짜칸은 제외
+    if (i.tagName === "TEXTAREA" || (tp !== "tel" && tp !== "date" && im !== "numeric" && im !== "decimal" && im !== "tel" && !i.dataset.date)) {
+      i.setAttribute("lang", "ko"); i.setAttribute("autocapitalize", "off");
+    }
+  });
   updateSummary();
 }
 // 위쪽 합계·표 아래 합계·항목별 합계 다시 계산 (입력하는 도중에도 호출)
@@ -1446,6 +1457,7 @@ document.addEventListener("input", e => {
     const r = b.rows[+el.dataset.r];
     if (f === "vat") r.vat = el.value.trim() === "" ? null : num(el.value);
     else if (f === "supply") r[f] = num(el.value);
+    else if (f === "qty") r.qty = num(el.value);
     else r[f] = el.value;
   } else if (el.dataset.c !== undefined) {
     const c = b.contacts[+el.dataset.c];
@@ -1454,7 +1466,7 @@ document.addEventListener("input", e => {
   } else b[f] = el.value;
   clearTimeout(typingTimer);
   typingTimer = setTimeout(save, 1000);
-  if (f === "supply" || f === "vat" || f === "amount") liveUpdate(el, b);
+  if (f === "supply" || f === "vat" || f === "amount" || f === "qty") liveUpdate(el, b);
 });
 // 금액 입력 중 바로 반영: 그 줄 합계, 청구금액/잔액, 위쪽 합계
 function liveUpdate(el, b) {
@@ -1472,6 +1484,9 @@ function liveUpdate(el, b) {
     if (amts.length === 2) { amts[0].textContent = won(t.supply + t.vat); amts[1].textContent = won(t.bal); amts[1].classList.toggle("minus", t.bal > 0); }
     const ct = scope.querySelectorAll(".card-total b");
     if (ct.length === 3) { ct[0].textContent = won(t.supply + t.vat); ct[1].textContent = won(t.paid); ct[2].textContent = won(t.bal); }
+    const si = isDraft(b) ? { c:"draft", t:"작성중" } : isDone(b) ? { c:"done", t:"입금완료" } : isPartial(b) ? { c:"part", t:"일부입금" } : { c:"open", t:"미완료" };
+    ["st-done","st-part","st-open","st-draft"].forEach(c => scope.classList.toggle(c, c === "st-" + si.c));
+    const badge = scope.querySelector(".badge"); if (badge && !badge.classList.contains("lt") && !badge.classList.contains("end")) { badge.className = "badge " + si.c; badge.textContent = si.t; }
   }
   updateSummary();
 }
@@ -1505,18 +1520,20 @@ document.addEventListener("change", e => {
       el.value = old || ""; return;
     }
     el.value = v;
+    if (f === "date") el.dataset.need = "0";
   }
   if (el.dataset.r !== undefined) {
     const r = b.rows[+el.dataset.r];
     if (f === "vat") r.vat = el.value.trim() === "" ? null : num(el.value);
     else if (f === "supply") r[f] = num(el.value);
+    else if (f === "qty") { const q = num(el.value); r.qty = q > 1 ? q : ""; el.value = r.qty; }
     else r[f] = el.value;
-    save(); return render();
+    liveUpdate(el, b); save(); return;
   }
   if (el.dataset.p !== undefined) {
     const x = b.payments[+el.dataset.p];
     if (f === "amount") x.amount = num(el.value); else x[f] = el.value;
-    save(); return render();
+    liveUpdate(el, b); save(); return;
   }
   if (f === "invoiced") { b.invoiced = el.checked; save(); return render(); }
   if (f === "endHere") { setEndHere(b, el.checked); return; }
@@ -1532,24 +1549,24 @@ document.addEventListener("change", e => {
     if (ce) toast(`계약기간 ~${md(ce)}: 이번 달은 ${md(b.periodStart)}~${md(b.periodEnd)}로 청구하고, 다음 달부터 매달 자동으로 넘어가요`);
     return;
   }
-  if (f === "cphone") { const c = b.contacts[+el.dataset.c]; el.value = fmtPhone(el.value); c.phone = el.value; if (+el.dataset.c === 0) b.phone = el.value; save(); return render(); }
-  if (f === "cname") { const c = b.contacts[+el.dataset.c]; c.name = el.value; if (+el.dataset.c === 0) b.manager = el.value; save(); return render(); }
-  if (f === "phone") { el.value = fmtPhone(el.value); b.phone = el.value; save(); return render(); }
-  if (f === "bizno") { el.value = fmtBiz(el.value); b.bizno = el.value; save(); return render(); }
-  if (f === "company") { b.company = el.value; if (!b.bizno) { const bz = biznoFor(el.value); if (bz) b.bizno = bz; } save(); return render(); }
+  if (f === "cphone") { const c = b.contacts[+el.dataset.c]; el.value = fmtPhone(el.value); c.phone = el.value; if (+el.dataset.c === 0) b.phone = el.value; save(); return; }
+  if (f === "cname") { const c = b.contacts[+el.dataset.c]; c.name = el.value; if (+el.dataset.c === 0) b.manager = el.value; save(); return; }
+  if (f === "phone") { el.value = fmtPhone(el.value); b.phone = el.value; save(); return; }
+  if (f === "bizno") { el.value = fmtBiz(el.value); b.bizno = el.value; save(); return; }
+  if (f === "company") { b.company = el.value; if (!b.bizno) { const bz = biznoFor(el.value); if (bz) { b.bizno = bz; const bzEl = (el.closest("td.cocell") || el.closest(".card"))?.querySelector('input[data-f="bizno"]'); if (bzEl) bzEl.value = bz; } } save(); return; }
   if (f === "payType") { b.payType = el.value; if (el.value === "cash") b.rows.forEach(r => r.vat = 0); if (el.value !== "normal") b.invoiced = false; save(); return render(); }
   b[f] = el.value;
+  let ceToast = "";
   if (f === "periodStart" || f === "periodEnd") {
     b.period = "";
-    if (b.longTerm && !b.ltEnded) {
-      const ce = applyContract(b);
-      save(); const made = ensureCarryOver(); render(); announce(made);
-      if (ce) toast(`계약기간 ~${md(ce)}: 이번 달은 ${md(b.periodStart)}~${md(b.periodEnd)}로 청구하고, 다음 달부터 매달 자동으로 넘어가요`);
-      return;
-    }
+    if (b.longTerm && !b.ltEnded) { const ce = applyContract(b); ensureCarryOver(); if (ce) ceToast = `계약기간 ~${md(ce)}: 이번 달은 ${md(b.periodStart)}~${md(b.periodEnd)}로 청구하고, 다음 달부터 매달 자동으로 넘어가요`; }
+  }
+  // 기간 일수 표시만 제자리 갱신 (화면 재그리기 없음 → 커서 안 튐)
+  if (f === "periodStart" || f === "periodEnd") {
+    const sc = el.closest("tbody.block") || el.closest(".card"); const d = sc && sc.querySelector(".days"); if (d) d.innerHTML = periodText(b);
   }
   save();
-  if (f !== "memo" && f !== "site" && f !== "manager") render();
+  if (ceToast) toast(ceToast);
 });
 
 document.addEventListener("click", async e => {
@@ -1592,7 +1609,7 @@ document.addEventListener("click", async e => {
     if (await uiConfirm(`'${b.company || "이 거래"}' 거래를 삭제할까요?`)) { data.splice(+ds.del, 1); save(); render(); }
   } else if (ds.addpay !== undefined) {
     const bi = +ds.addpay, b = data[bi], t = totalsOf(b);
-    b.payments.push({ date:today(), amount:Math.max(0, t.bal), note:"" });
+    b.payments.push({ date:"", amount:Math.max(0, t.bal), note:"" });
     save(); render();
     const amts = document.querySelectorAll(`input[data-b="${bi}"][data-f="amount"]`);
     const last = amts[amts.length - 1]; if (last) { last.focus(); last.select(); }
@@ -1696,7 +1713,7 @@ function printView(list) {
     const g = b.longTerm ? "long" : "short";
     if (g !== grp) {
       grp = g;
-      body += `<tbody><tr class="pg"><td colspan="14">${g === "long" ? "장기임대" : "단기임대"} ${list.filter(([x]) => !!x.longTerm === (g === "long")).length}건</td></tr></tbody>`;
+      body += `<tbody><tr class="pg"><td colspan="15">${g === "long" ? "장기임대" : "단기임대"} ${list.filter(([x]) => !!x.longTerm === (g === "long")).length}건</td></tr></tbody>`;
     }
     const t = totalsOf(b), span = b.rows.length;
     const pays = b.payments.length ? b.payments.map(x => `${x.date ? md(x.date) : "-"} ${won(x.amount)}`).join("<br>") : `<span class="muted2">없음</span>`;
@@ -1709,7 +1726,7 @@ function printView(list) {
       if (ri === 0) body += `<td rowspan="${span}" class="nw">${esc(b.date)}</td><td rowspan="${span}" class="nw">${esc(b.company)}${b.bizno ? `<br><span class="muted2">${esc(b.bizno)}</span>` : ""}</td>
         <td rowspan="${span}" class="l">${esc(b.site)}</td><td rowspan="${span}" class="nw">${b.contacts.map(c => esc(c.name) + (c.phone ? ` <span class="muted2">${esc(c.phone)}</span>` : "")).filter(x => x.trim()).join("<br>") || "-"}</td>
         <td rowspan="${span}" class="nw">${per}</td><td rowspan="${span}">${kind}</td>`;
-      body += `<td class="l nw">${esc(r.item)}</td><td class="r">${fmt(r.supply) || "0"}</td><td class="r">${fmt(vatOf(r, b)) || "0"}</td><td class="r">${fmt(lineOf(r, b)) || "0"}</td>`;
+      body += `<td class="l nw">${esc(r.item)}</td><td class="r">${+r.qty > 0 ? +r.qty : 1}</td><td class="r">${fmt(r.supply) || "0"}</td><td class="r">${fmt(vatOf(r, b)) || "0"}</td><td class="r">${fmt(lineOf(r, b)) || "0"}</td>`;
       if (ri === 0) body += `<td rowspan="${span}" class="r">${pays}</td>
         <td rowspan="${span}" class="r"><span class="muted2">청구금액</span><br><b>${won(t.supply + t.vat)}</b><br><span class="muted2">잔액</span><br><b>${won(t.bal)}</b></td>
         <td rowspan="${span}" class="pst nw">${stTxt}<br><span class="muted2">${(b.payType === "cash" || b.payType === "card") ? "계산서 없음" : (b.invoiced ? "계산서 ✓" : "계산서 미발행")}</span></td><td rowspan="${span}" class="pmemo">${esc(b.memo)}</td>`;
@@ -1717,13 +1734,13 @@ function printView(list) {
     });
     body += "</tbody>";
   });
-  if (!list.length) body = `<tbody><tr><td colspan="14">거래가 없습니다</td></tr></tbody>`;
+  if (!list.length) body = `<tbody><tr><td colspan="15">거래가 없습니다</td></tr></tbody>`;
   const t = list.map(([b]) => totalsOf(b)).reduce((a, c) => ({ supply:a.supply + c.supply, vat:a.vat + c.vat, paid:a.paid + c.paid, bal:a.bal + c.bal }), { supply:0, vat:0, paid:0, bal:0 });
   return printHead(list) + `<table class="ptable">
     <thead><tr><th>날짜</th><th>업체명</th><th>주소</th><th>담당자</th><th>임대기간</th><th>구분</th><th>공급내역</th>
-      <th>공급가액</th><th>부가세</th><th>합계</th><th>입금 내역</th><th>잔액</th><th>상태</th><th>비고</th></tr></thead>
+      <th>수량</th><th>공급가액</th><th>부가세</th><th>합계</th><th>입금 내역</th><th>잔액</th><th>상태</th><th>비고</th></tr></thead>
     ${body}
-    <tfoot><tr><td colspan="7">합계</td><td class="r">${fmt(t.supply) || 0}</td><td class="r">${fmt(t.vat) || 0}</td>
+    <tfoot><tr><td colspan="8">합계</td><td class="r">${fmt(t.supply) || 0}</td><td class="r">${fmt(t.vat) || 0}</td>
       <td class="r">${fmt(t.supply + t.vat) || 0}</td><td class="r">${won(t.paid)}</td><td class="r">${won(t.bal)}</td><td colspan="2"></td></tr></tfoot>
   </table>`;
 }
@@ -1999,7 +2016,7 @@ document.getElementById("csvBtn").onclick = () => {
     a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" }));
     a.download = `매출합계_${reportYear}.csv`; a.click(); return;
   }
-  const lines = [["날짜","매출구분","업체명","사업자번호","주소","담당자","연락처","임대기간","임대구분","공급내역","공급가액","부가세","합계","입금내역","입금합계","잔액","상태","계산서","비고"]];
+  const lines = [["날짜","매출구분","업체명","사업자번호","주소","담당자","연락처","임대기간","임대구분","공급내역","수량","공급가액(단가)","부가세","합계","입금내역","입금합계","잔액","상태","계산서","비고"]];
   data.filter(visible).forEach(b => {
     const per = b.periodStart || b.periodEnd ? `${b.periodStart}~${b.periodEnd}` : (b.period || "");
     const kind = b.longTerm ? `장기 ${roundOf(b)}개월차${b.ltEnded ? " (종료)" : ""}` : "단기";
@@ -2008,7 +2025,7 @@ document.getElementById("csvBtn").onclick = () => {
     const ptn = b.payType === "cash" ? "현금" : b.payType === "card" ? "카드" : "일반";
     const cNames = b.contacts.map(c => c.name).filter(Boolean).join(" / ");
     const cPhones = b.contacts.map(c => c.phone).filter(Boolean).join(" / ");
-    b.rows.forEach((r, i) => lines.push([b.date, i === 0 ? ptn : "", b.company, b.bizno || "", b.site, cNames, cPhones, per, kind, r.item, r.supply || 0,
+    b.rows.forEach((r, i) => lines.push([b.date, i === 0 ? ptn : "", b.company, b.bizno || "", b.site, cNames, cPhones, per, kind, r.item, (+r.qty > 0 ? +r.qty : 1), r.supply || 0,
       vatOf(r, b), lineOf(r, b), i === 0 ? pays : "", i === 0 ? t.paid : "", i === 0 ? t.bal : "", i === 0 ? st : "", i === 0 ? ((b.payType === "cash" || b.payType === "card") ? "해당없음" : (b.invoiced ? "발행" : "미발행")) : "", i === 0 ? b.memo : ""]));
   });
   const csv = "\uFEFF" + lines.map(l => l.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
